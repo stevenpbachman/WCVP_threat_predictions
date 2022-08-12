@@ -1,2 +1,2 @@
 # WCVP_threat_predictions
-Predicting threat status for all vascular plant species
+Predicting threat status for all angiosperm plant species
