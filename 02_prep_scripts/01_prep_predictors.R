@@ -4,6 +4,9 @@
 library(dplyr)
 library(readr)
 library(tidyr)
+library(glue)
+library(tidyverse)
+library(scales)
 
 # load in the new phyt special version of WCVP
 wcvp_names <- read_delim("01_raw_data/wcvp_names.txt",
@@ -30,37 +33,48 @@ apg_fams <- APGIV_families_orders_IUCN_crosswalk %>%
 
 wcvp_thin <-  left_join(wcvp_thin, apg_fams, by = c("family" = "APG.IV.Family"))
 
-wcvp_thin %>%
-  group_by(HigherGroups)%>%
-  count()
+# get total number of accepted angiosperms
+angio = wcvp_thin %>%
+  filter(complete.cases(HigherGroups))
 
-unique(wcvp_thin$HigherGroups)
+glue("There are", "{nrow(angio)}", "accepted angiosperm species", .sep=" ")
+
+# set factors
+angio$climate_description <- as.factor(angio$climate_description)
+angio$APG.IV.Order  <- as.factor(angio$APG.IV.Order )
+angio$family <- as.factor(angio$family)
+angio$genus <- as.factor(angio$genus)
+angio$lifeform_description <- as.factor(angio$lifeform_description)
+
+str(angio)
 
 #### Pred 1 - 2 family and genus ####
-
+# done
 
 # check for missing values
-missing_family <- wcvp_thin %>%
+missing_family <- angio %>%
   filter(!complete.cases(family))
-nrow(missing_family)
 
-missing_genus <- wcvp_thin %>%
+missing_genus <- angio %>%
   filter(!complete.cases(genus))
-nrow(missing_genus)
 
-missing_lifeform <- wcvp_thin %>%
+missing_lifeform <- angio %>%
   filter(!complete.cases(lifeform_description))
-nrow(missing_lifeform)
 
-missing_climate <- wcvp_thin %>%
+missing_climate <- angio %>%
   filter(!complete.cases(climate_description))
-nrow(missing_climate)
+
+glue("There are {nrow(missing_family)} missing families", 
+     "There are {nrow(missing_genus)} missing genera", 
+     "There are {nrow(missing_lifeform)} missing lifeforms", 
+     "There are {nrow(missing_climate)} missing climate descriptions", 
+     .sep="\n ")
 
 # pred 1 = family
 # pred 2 = genus
 
 #### Pred 3 - dominant life form (Humphreys) ####
-life_forms <- wcvp_thin %>%
+life_forms <- angio %>%
   select(plant_name_id, lifeform_description)
 
 # check the unique life form values
@@ -70,21 +84,20 @@ life_forms_unique <- data.frame(lifeform = unique(life_forms$lifeform_descriptio
 life_form_mapping <-  read_csv("01_raw_data/life_form_mapping.csv")
 
 # join mapping to wcvp_thin
-wcvp_thin <- left_join(wcvp_thin, life_form_mapping, by = "lifeform_description")
-  
+angio <- left_join(angio, life_form_mapping, by = "lifeform_description")
+
+angio$humphreys_lifeform <- as.factor(angio$humphreys_lifeform)
+
 # pred 3 = humphreys_lifeform
 
 #### Pred 4 - count of lifeforms ####
-humphreys_unique <- data.frame(lifeform = unique(life_form_mapping$humphreys_lifeform))
+#humphreys_unique <- data.frame(lifeform = unique(life_form_mapping$humphreys_lifeform))
 
-# first row selects the columns you want
-# second row does the separation by comma
-life_forms_tidy = life_forms_unique %>%
-  separate(lifeform, into = c("first", "second"), sep = " or ")
+# need to think about this - what about 'sometimes' and 'somewhat'?
 
 # try first separation with comma?
-
-
+#life_forms_tidy = life_forms_unique %>%
+#  separate(lifeform, into = c("first", "second"), sep = ", ")
 
 
 #### Pred 5- count of TDWG regions per species ####
@@ -102,46 +115,34 @@ count_geog <- geog_thin %>%
   summarise(L3_count = n_distinct(area_code_l3))
 
 # join mapping to wcvp_thin
-wcvp_thin <- left_join(wcvp_thin, count_geog, by = "plant_name_id")
+angio <- left_join(angio, count_geog, by = "plant_name_id")
 
 #### remove NAs ####
 #for final list to try model on 
-wcvp_pred_v1 <-  wcvp_thin %>%
+angio_pred_v1 <-  angio %>%
   filter(complete.cases(family),
          complete.cases(climate_description),
          complete.cases(HigherGroups),         
          complete.cases(humphreys_lifeform),
-         complete.cases(count))
+         complete.cases(L3_count))
+
+glue("We have {nrow(angio_pred_v1)} angiosperm species to model", "({percent_format(accuracy=0.1)(nrow(angio_pred_v1)/nrow(angio))})",
+     .sep=" ")
+
 
 #### link RL assessments ####
-redlistJul2022_wcvpNewPhyt <- read.csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv")
+rl <- read.csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv")
 
-rl <- redlistJul2022_wcvpNewPhyt
+# now join threat status to wcvp 
+angio_pred_v1 <- left_join(angio_pred_v1, rl, by = c("plant_name_id" = "accepted_plant_name_id"))
 
-#cats <- rl %>%
-#  group_by(category) %>%
- # count()
-
-rl <- rl %>%
-  mutate(threat_stat = case_when(
-    category == "CR" ~ "Threatened",
-    category == "EN" ~ "Threatened",
-    category == "VU" ~ "Threatened",
-    category == "NT" ~ "Not_Threatened",
-    category == "LC" ~ "Not_Threatened",
-    category == "LR/cd" ~ "Threatened",
-    category == "LR/nt" ~ "Threatened",
-    category == "LR/lc" ~ "Not_Threatened",
-    category == "EW" ~ "Threatened",
-    category == "EX" ~ "Threatened",
-    category == "DD" ~ "Data_deficient"
-    )) %>%
-  select(scientific_name, category, threat_stat, accepted_plant_name_id)
+str(angio_pred_v1)
+# save it   
+#write_csv(angio_pred_v1, paste0("03_analysis_scripts/angio_pred_v1.csv"))
 
 
   
-# now join threat status to wcvp 
-wcvp_pred_v1 <- left_join(wcvp_pred_v1, rl, by = c("plant_name_id" = "accepted_plant_name_id"))
+
 
 
   
