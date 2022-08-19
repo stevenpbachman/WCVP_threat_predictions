@@ -52,8 +52,8 @@ if(!file.exists("04_output/tdwg_biome_composition_km.csv")){
     theme_void()+
     guides(fill=guide_legend("Biome"))
   
-  #ggsave("03_figures/tdwg_biomes.svg")
-  #ggsave("03_figures/tdwg_biomes.png")
+  ggsave("05_figures/tdwg_biomes.svg")
+  ggsave("05_figures/tdwg_biomes.png")
   
   # calculate areas of each biome per tdwg region ----
   
