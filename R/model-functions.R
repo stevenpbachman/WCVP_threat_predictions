@@ -69,7 +69,8 @@ evaluate_model <- function(splits, metrics, cluster=NULL) {
       #functions
       metrics=metrics,
       last_fit_threshold=last_fit_threshold,
-      choose_threshold=choose_threshold
+      choose_threshold=choose_threshold,
+      permutation_importance=permutation_importance
     )  
   }
   
@@ -83,13 +84,39 @@ evaluate_model <- function(splits, metrics, cluster=NULL) {
   
   results <- 
     results |>
-    mutate(.fit=list(last_fit_threshold(.workflow, splits, metrics=metrics)))
+    mutate(.fit=list(last_fit_threshold(.workflow, splits, metrics=metrics))) |>
+    mutate(.importance=list(permutation_importance(.fit$.fit, splits)))
   
   if (! is.null(cluster)) {
     results <- collect(results)
   }
   
   results
+}
+
+#' Calculate predictor importance by random permutations.
+#'
+#' @param object A fitted `workflow` object.
+#' @param split A single CV fold from `rsample`.
+#' 
+#' @return A data frame of the predictor importance measured as the mean decrease
+#'  in accuracy after randomly permuting each predictor in turn.
+#'  
+permutation_importance <- function(object, split) {
+  
+  trained_rec <- extract_recipe(object)
+  fit_obj <- extract_fit_engine(object)
+  
+  newdata <- bake(trained_rec, assessment(split))
+  
+  vip::vi_permute(
+    fit_obj,
+    train=newdata,
+    target="obs",
+    metric="accuracy",
+    pred_wrapper=function(object, newdata) predict(object, newdata=newdata),
+    nsim=50
+  )
 }
 
 #' Fit and evaluate a model with additional threshold tuning.
@@ -165,6 +192,17 @@ extract_predictions <- function(results) {
     mutate(.preds=list(.fit$.predictions)) |>
     select(id, .preds) |>
     unnest(.preds)
+}
+
+#' Extract the cross-validated permutation importance from a nested data frame.
+#' 
+#' @param results A data frame of modelling results after running `evaluate_model`.
+#' 
+extract_importance <- function(results) {
+  results |>
+    select(id, .importance) |>
+    unnest(.importance) |>
+    select(variable=Variable, mean_decrease_accuracy=Importance)
 }
 
 

@@ -161,7 +161,7 @@ registerDoParallel(cl)
 
 # this sets up a cluster for mapping chunks of data frames (model evaluation)
 cluster <- new_cluster(ncores)
-cluster_library(cluster, packages=c("dplyr", "tidymodels", "ROCR"))
+cluster_library(cluster, packages=c("dplyr", "tidymodels", "ROCR", "vip"))
 
 # set up model ----
 model_spec <- specify_model()
@@ -214,6 +214,12 @@ family_test_pred <- extract_predictions(family_results)
 
 write_csv(random_test_pred, file.path(output_dir, paste0(name, "-random-test-preds.csv")))
 write_csv(random_test_pred, file.path(output_dir, paste0(name, "-family-test-preds.csv")))
+
+random_importance <- extract_importance(random_results)
+family_importance <- extract_importance(family_results)
+
+write_csv(random_importance, file.path(output_dir, paste0(name, "-random-importance.csv")))
+write_csv(random_importance, file.path(output_dir, paste0(name, "-family-importance.csv")))
 
 # tune and fit final model ----
 final_wf <- wf
