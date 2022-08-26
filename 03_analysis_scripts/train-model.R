@@ -259,7 +259,11 @@ if (model_spec$engine == "dbarts") {
   write_csv(predictions$ev, file.path(output_dir, paste0(name, "-ev-samples.csv")))
 }
 
-predictions <- predict_classes(fit_wf, labelled, unlabelled)
+labelled_pred <- augment(fit_wf, new_data=labelled)
+threshold <- choose_threshold(labelled_pred$.pred_threatened, labelled_pred$obs)
+write_csv(as_tibble(threshold), file.path(output_dir, paste0(name, "-thresholds.csv")))
+
+predictions <- predict_classes(fit_wf, labelled, unlabelled, threshold=threshold$best)
 write_csv(predictions, file.path(output_dir, paste0(name, "-final-predictions.csv")))
 
 cli_alert_success("Finished training, evaluations, predictions, and saving outputs!")

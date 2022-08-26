@@ -178,7 +178,8 @@ extract_performance <- function(results) {
   results |>
     rowwise() |>
     mutate(.metrics=list(.fit$.metrics)) |>
-    select(id, .metrics) |>
+    mutate(.threshold=.fit$.threshold) |>
+    select(id, .metrics, .threshold) |>
     unnest(.metrics)
 }
 
@@ -263,9 +264,12 @@ predict_bart <- function(wf, labelled, unlabelled) {
 #' @param wf a fit `workflow` object
 #' @param labelled a data frame of labelled data for predictions
 #' @param unlabelled a data frame of unlabelled data for predictions
-predict_classes <- function(wf, labelled, unlabelled) {
+predict_classes <- function(wf, labelled, unlabelled, threshold=NULL) {
   labelled_pred <- augment(wf, new_data=labelled)
-  threshold <- choose_threshold(labelled_pred$.pred_threatened, labelled_pred$obs)
+  if (is.null(threshold)) {
+    threshold <- choose_threshold(labelled_pred$.pred_threatened, labelled_pred$obs)
+    threshold <- threshold$best
+  }
   
   unlabelled_pred <- augment(wf, new_data=labelled)
   
@@ -275,8 +279,8 @@ predict_classes <- function(wf, labelled, unlabelled) {
       unlabelled_pred |>
         mutate(set="labelled")
     ) |>
-    mutate(.pred_class=ifelse(.pred_threatened > threshold$best,
+    mutate(.pred_class=ifelse(.pred_threatened > threshold,
                               "threatened", "not threatened"),
-           .threshold=threshold$best) |>
+           .threshold=threshold) |>
     mutate(.pred_class=factor(.pred_class, levels=levels(obs)))
 }
