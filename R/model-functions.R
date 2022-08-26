@@ -166,3 +166,79 @@ extract_predictions <- function(results) {
     select(id, .preds) |>
     unnest(.preds)
 }
+
+
+#' Sample posterior predictions for labelled and unlabelled data using a BART model.
+#'
+#' @param wf a fit `workflow` object
+#' @param labelled a data frame of labelled data for predictions
+#' @param unlabelled a data frame of unlabelled data for predictions
+predict_bart <- function(wf, labelled, unlabelled) {
+  # extracting fit object and recipe so we can sample posterior
+  trained_rec <- extract_recipe(wf)
+  fit_obj <- extract_fit_engine(wf)
+  
+  # process data for predictions
+  labelled_processed <- bake(trained_rec, new_data=labelled)
+  unlabelled_processed <- bake(trained_rec, new_data=unlabelled)
+  
+  # sample posterior probability of threat
+  pred_labelled <- predict(fit_obj, newdata=labelled_processed, type="ev")
+  pred_unlabelled <- predict(fit_obj, newdata=unlabelled_processed, type="ev")
+  
+  ev_samples <-
+    pred_labelled |>
+    t() |>
+    as_tibble() |>
+    mutate(set="labelled", plant_name_id=labelled$plant_name_id) |>
+    bind_rows(
+      pred_unlabelled |>
+        t() |>
+        as_tibble() |>
+        mutate(set="unlabelled", plant_name_id=unlabelled$plant_name_id)
+    )
+  
+  # sample posterior predictive (so we can get estimated proportion threatened)
+  ppd_labelled <- predict(fit_obj, newdata=labelled_processed, type="ppd")
+  ppd_unlabelled <- predict(fit_obj, newdata=unlabelled_processed, type="ppd")
+  
+  ppd_samples <-
+    ppd_labelled |>
+    t() |>
+    as_tibble() |>
+    mutate(set="labelled", plant_name_id=labelled$plant_name_id) |>
+    bind_rows(
+      ppd_unlabelled |> 
+        t() |>
+        as_tibble() |>
+        mutate(set="unlabelled", plant_name_id=unlabelled$plant_name_id)
+    )
+  
+  list(
+    ev=ev_samples,
+    ppd=ppd_samples
+  )
+}
+
+#' Make predictions for labelled and unlabelled data.
+#'
+#' @param wf a fit `workflow` object
+#' @param labelled a data frame of labelled data for predictions
+#' @param unlabelled a data frame of unlabelled data for predictions
+predict_classes <- function(wf, labelled, unlabelled) {
+  labelled_pred <- augment(wf, new_data=labelled)
+  threshold <- choose_threshold(labelled_pred$.pred_threatened, labelled_pred$obs)
+  
+  unlabelled_pred <- augment(wf, new_data=labelled)
+  
+  labelled_pred |>
+    mutate(set="labelled") |>
+    bind_rows(
+      unlabelled_pred |>
+        mutate(set="labelled")
+    ) |>
+    mutate(.pred_class=ifelse(.pred_threatened > threshold$best,
+                              "threatened", "not threatened"),
+           .threshold=threshold$best) |>
+    mutate(.pred_class=factor(.pred_class, levels=levels(obs)))
+}

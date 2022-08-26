@@ -122,8 +122,8 @@ predictors <- filter(predictors, ! category %in% c("EW", "EX"))
 old_codes_map <- c("LR/cd"="NT", "LR/lc"="LC", "LR/nt"="NT")
 predictors$category <- recode(predictors$category, !!! old_codes_map)
 
-predictors$lifeform_description <- factor(predictors$lifeform_description)
-predictors$climate_description <- factor(predictors$lifeform_description)
+predictors$humphreys_lifeform <- factor(predictors$humphreys_lifeform)
+predictors$climate_description <- factor(predictors$climate_description)
 
 labelled <- filter(predictors, ! is.na(category), category != "DD")
 unlabelled <- filter(predictors, is.na(category) | category == "DD")
@@ -168,7 +168,7 @@ model_spec <- specify_model()
 model_recipe <- specify_recipe(labelled)
 
 wf <- 
-  workflow |>
+  workflow() |>
   add_model(model_spec) |>
   add_recipe(model_recipe)
 
@@ -235,53 +235,25 @@ if (exists("hparam_grid")) {
 cli_alert_info("Training final model on all labelled data")
 fit_wf <- fit(final_wf, labelled)
 
-# have to 'touch' the trees to be able to save them for predictions
-invisible(fit_wf$fit$fit$fit$fit$state)
+if (method == "bart") {
+  # have to 'touch' the trees to be able to save them for predictions
+  invisible(fit_wf$fit$fit$fit$fit$state)  
+}
+
 
 write_rds(fit_wf, file.path(model_dir, paste0(name, ".rds")))
 
 # make predictions ----
-cli_alert_info("Sampling posterior and posterior predictive for all species")
-# extracting fit object and recipe so we can sample posterior
-trained_rec <- extract_recipe(fit_wf)
-fit_obj <- extract_fit_engine(fit_wf)
+cli_alert_info("Generating predictions for all species")
 
-# process data for predictions
-labelled_processed <- bake(trained_rec, new_data=labelled)
-unlabelled_processed <- bake(trained_rec, new_data=unlabelled)
+if (model_spec$engine == "dbarts") {
+  predictions <- predict_bart(fit_wf, labelled, unlabelled)
+  
+  write_csv(predictions$ppd, file.path(output_dir, paste0(name, "-ppd-samples.csv")))
+  write_csv(predictions$ev, file.path(output_dir, paste0(name, "-ev-samples.csv")))
+}
 
-# sample posterior probability of threat
-pred_labelled <- predict(fit_obj, newdata=labelled_processed, type="ev")
-pred_unlabelled <- predict(fit_obj, newdata=unlabelled_processed, type="ev")
-
-ev_samples <-
-  pred_labelled |>
-  t() |>
-  as_tibble() |>
-  mutate(set="labelled", plant_name_id=labelled$plant_name_id) |>
-  bind_rows(
-    pred_unlabelled |>
-      t() |>
-      as_tibble() |>
-      mutate(set="unlabelled", plant_name_id=unlabelled$plant_name_id)
-  )
-
-write_csv(ev_samples, file.path(output_dir, paste0(name, "-ev-samples.csv")))
-
-# sample posterior predictive (so we can get estimated proportion threatened)
-ppd_labelled <- predict(fit_obj, newdata=labelled_processed, type="ppd")
-ppd_unlabelled <- predict(fit_obj, newdata=unlabelled_processed, type="ppd")
-
-ppd_samples <-
-  ppd_labelled |>
-  as_tibble() |>
-  mutate(set="labelled", plant_name_id=labelled_processed$plant_name_id) |>
-  bind_rows(
-    ppd_unlabelled |> 
-      as_tibble() |>
-      mutate(set="unlabelled", plant_name_id=unlabelled_processed$plant_name_id)
-  )
-
-write_csv(ppd_samples, file.path(output_dir, paste0(name, "-ppd-samples.csv")))
+predictions <- predict_classes(fit_wf, labelled, unlabelled)
+write_csv(predictions, file.path(output_dir, paste0(name, "-final-predictions.csv")))
 
 cli_alert_success("Finished training, evaluations, predictions, and saving outputs!")
