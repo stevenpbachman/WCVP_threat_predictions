@@ -32,6 +32,7 @@ shhlibrary(git2r)       # run git commands in R
 shhlibrary(cli)         # nice formatting for CLI
 
 source("R/model-functions.R")
+source("R/utility-functions.R")
 
 # CLI ----
 cli_h1("Running extinction risk prediction method")
@@ -41,7 +42,8 @@ if (sys.nframe() == 0L) {
     output_dir="output",
     method_dir="04_model_definitions",
     model_dir="output",
-    random_seed=1989
+    random_seed=1989,
+    force_commits=TRUE
   )
   args <- R.utils::commandArgs(asValues=TRUE,
                                excludeReserved=TRUE, excludeEnvVars=TRUE,
@@ -51,6 +53,7 @@ if (sys.nframe() == 0L) {
   predictor_file <- args$predictor_file
   
   random_seed <- args$random_seed
+  force_commits <- args$force_commits
   
   output_dir <- args$output_dir
   method_dir <- args$method_dir
@@ -106,6 +109,8 @@ source(file.path(method_dir, paste0(method, ".R")))
 dir.create(output_dir, showWarnings=FALSE)
 dir.create(model_dir, showWarnings=FALSE)
 
+warn_uncommitted(.stop=force_commits)
+
 latest_hash <- revparse_single(".", "HEAD")$sha
 now <- format(Sys.time(), "%Y%m%d-%H%M%S")
 name <- paste(method, latest_hash, now, sep="-")
@@ -131,7 +136,7 @@ unlabelled <- filter(predictors, is.na(category) | category == "DD")
 labelled$obs <- ifelse(labelled$category %in% c("LC", "NT"), "not threatened", "threatened")
 labelled$obs <- factor(labelled$obs, levels=c("not threatened", "threatened"))
 
-unlabelled$obs <- factor(NA, levels=levels(labelled$obs), ordered=TRUE)
+unlabelled$obs <- factor(NA, levels=levels(labelled$obs))
 
 pct_threat <- mean(labelled$obs == 'threatened')
 
@@ -245,7 +250,6 @@ if (method == "bart") {
   # have to 'touch' the trees to be able to save them for predictions
   invisible(fit_wf$fit$fit$fit$fit$state)  
 }
-
 
 write_rds(fit_wf, file.path(model_dir, paste0(name, ".rds")))
 

@@ -271,13 +271,13 @@ predict_classes <- function(wf, labelled, unlabelled, threshold=NULL) {
     threshold <- threshold$best
   }
   
-  unlabelled_pred <- augment(wf, new_data=labelled)
+  unlabelled_pred <- augment(wf, new_data=unlabelled)
   
   labelled_pred |>
     mutate(set="labelled") |>
     bind_rows(
       unlabelled_pred |>
-        mutate(set="labelled")
+        mutate(set="unlabelled")
     ) |>
     mutate(.pred_class=ifelse(.pred_threatened > threshold,
                               "threatened", "not threatened"),
