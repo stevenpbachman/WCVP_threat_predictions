@@ -15,7 +15,8 @@ specify_recipe <- function(data, ...) {
     obs ~ L3_count + humphreys_lifeform + climate_description
   )
   rec <- recipe(form, data=data) |>
-    step_log(L3_count)
+    step_log(L3_count) |>
+    step_unknown(humphreys_lifeform)
   
   rec
 }
