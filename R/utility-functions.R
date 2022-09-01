@@ -36,3 +36,26 @@ warn_uncommitted <- function(.stop=TRUE) {
   
   invisible()
 }
+
+#' Calculate test set performance across subgroups.
+#' 
+#' @param d A data frame of test set predictions.
+#' @param ... Columns containing the names of the subgroups to calculate performance
+#'  across.
+#' @param metrics A metric or set of metrics from `yardstick` for evaluating performance.
+#' 
+#' @return A data frame
+#'
+disaggregate_performance <- function(d, ..., metrics=NULL) {
+  if (is.null(metrics)) {
+    metrics <- accuracy
+  }
+  
+  join_keys <- sapply(enquos(...), rlang::quo_name)
+  
+  n <- count(d, ...)
+  d |>
+    group_by(...) |>
+    metrics(truth=obs, estimate=.pred_class, event_level="second") |>
+    left_join(n, by=join_keys)
+}
