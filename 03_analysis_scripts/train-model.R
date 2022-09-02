@@ -224,7 +224,7 @@ random_importance <- extract_importance(random_results)
 family_importance <- extract_importance(family_results)
 
 write_csv(random_importance, file.path(output_dir, paste0(name, "-random-importance.csv")))
-write_csv(random_importance, file.path(output_dir, paste0(name, "-family-importance.csv")))
+write_csv(family_importance, file.path(output_dir, paste0(name, "-family-importance.csv")))
 
 # tune and fit final model ----
 final_wf <- wf
