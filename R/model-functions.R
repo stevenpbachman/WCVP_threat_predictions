@@ -85,7 +85,7 @@ evaluate_model <- function(splits, metrics, cluster=NULL) {
   results <- 
     results |>
     mutate(.fit=list(last_fit_threshold(.workflow, splits, metrics=metrics))) |>
-    mutate(.importance=list(permutation_importance(.fit$.fit, splits)))
+    mutate(.importance=list(permutation_importance(.fit$.fit, splits, .threshold=.threshold)))
   
   if (! is.null(cluster)) {
     results <- collect(results)
@@ -102,19 +102,30 @@ evaluate_model <- function(splits, metrics, cluster=NULL) {
 #' @return A data frame of the predictor importance measured as the mean decrease
 #'  in accuracy after randomly permuting each predictor in turn.
 #'  
-permutation_importance <- function(object, split) {
+permutation_importance <- function(object, split, .threshold=0.5) {
   
   trained_rec <- extract_recipe(object)
   fit_obj <- extract_fit_engine(object)
   
   newdata <- bake(trained_rec, assessment(split))
+  if (class(fit_obj) == "bart") {
+    fcn <- function(object, newdata) {
+      p <- colMeans(predict(object, newdata))
+      ifelse(p > .threshold, "threatened", "not threatened")
+    }
+  } else {
+    fcn <- function(object, newdata) {
+      p <- predict(object, newdata, type="prob")
+      ifelse(p > .threshold, "threatened", "not threatened")
+    }
+  }
   
   vip::vi_permute(
     fit_obj,
     train=newdata,
     target="obs",
     metric="accuracy",
-    pred_wrapper=function(object, newdata) predict(object, newdata=newdata),
+    pred_wrapper=fcn,
     nsim=50
   )
 }
