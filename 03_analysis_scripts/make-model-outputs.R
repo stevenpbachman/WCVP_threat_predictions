@@ -38,7 +38,8 @@ cli_h1("Running extinction risk prediction method")
 if (sys.nframe() == 0L) {
   default_args <- list(
     output_dir="output",
-    model_dir="output"
+    model_dir="output",
+    family_size=0
   )
   args <- R.utils::commandArgs(asValues=TRUE,
                                excludeReserved=TRUE, excludeEnvVars=TRUE,
@@ -47,6 +48,7 @@ if (sys.nframe() == 0L) {
   model_name <- args$model_name
   output_dir <- args$output_dir
   model_dir <- args$model_dir
+  family_size <- args$family_size
 }
 
 if (! exists("model_name", mode="character")) {
@@ -68,6 +70,10 @@ if (! exists("model_dir")) {
     "no path to model results provided",
     "x"="You must provide the path to where model results are saved as the variable {.var model_dir}."
   ))
+}
+
+if (! exists("family_size", mode="integer")) {
+  family_size <- 0
 }
 
 dir.create(output_dir, showWarnings=FALSE)
@@ -97,6 +103,13 @@ random_test_preds <- read_csv(file.path(model_dir, paste0(name, "-random-test-pr
                               show_col_types=FALSE)
 family_test_preds <- read_csv(file.path(model_dir, paste0(name, "-family-test-preds.csv")),
                               show_col_types=FALSE)
+
+# load predictions for family size
+predictions <- read_csv(file.path(model_dir, paste0(name, "-final-predictions.csv")),
+                        show_col_types=FALSE)
+
+family_counts <- count(predictions, family)
+show_families <- family_counts[family_counts$n > family_size, ]$family
 
 ## overall performance ----
 overall_performance <-
@@ -137,7 +150,8 @@ climate_perf <- disaggregate_performance(test_preds, cv, climate_description, me
 
 family_perf_plot <- 
   family_perf |>
-  plot_performance_bars("family", "cv", metric="j_index") +
+  filter(family %in% show_families) |>
+  plot_performance_bars("family", "cv", metric="accuracy") +
   facet_wrap(~cv)
 
 climate_perf_plot <- plot_performance_bars(climate_perf, "climate_description", "cv",
@@ -149,13 +163,13 @@ lifeform_perf_plot <- plot_performance_bars(lifeform_perf, "humphreys_lifeform",
 (perf_plot <- 
   ((overall_perf_plot / (lifeform_perf_plot + remove_xaxis()) / 
      (climate_perf_plot + labs(x="J index")) + plot_layout(heights=c(4, 4, 6))) | 
-     (family_perf_plot + labs(x="J index"))) +
+     (family_perf_plot + labs(x="Accuracy"))) +
  plot_layout(guides="collect") & 
   theme(legend.position="bottom") &
   guides(color="none", fill=guide_legend(title="")))
 
 ggsave(file.path(output_dir, paste0(name, "-performance-plot.png")), perf_plot,
-       height=10, width=10)
+       height=20, width=10)
 
 ## region-wise performance map ----
 distributions <-
@@ -178,32 +192,31 @@ country_perf <-
 ggsave(file.path(output_dir, paste0(name, "-performance-map.png")), perf_map)
 
 # predictions ----
-## load data ----
-predictions <- read_csv(file.path(model_dir, paste0(name, "-final-predictions.csv")),
-                        show_col_types=FALSE)
-
 # load posterior samples if they're there
 ppd_file <- list.files(model_dir, pattern=paste0(name, "-ppd-samples"))
 if (length(ppd_file) > 0) {
-  pred_samples <- read_csv(file.path(model_dir, paste0(name, "-ppd-samples.csv")),
-                           show_col_types=FALSE)
-  pred_probs <- read_csv(file.path(model_dir, paste0(name, "-ev-samples.csv")),
-                         show_col_types=FALSE)
+  pred_data <- predictions
   
-  pred_samples <- 
-    pred_samples |>
+  predictions <- 
+    read_csv(file.path(model_dir, paste0(name, "-ppd-samples.csv")),
+             show_col_types=FALSE) |>
     pivot_longer(cols=c(-set, -plant_name_id), names_to=".draw", values_to="threatened") |>
-    mutate(.draw=as.integer(str_remove(.draw, "V"))) 
-  
-  pred_probs <- 
-    pred_probs |>
-    pivot_longer(cols=c(-set, -plant_name_id), names_to=".draw", values_to="p_threatened") |>
-    mutate(.draw=as.integer(str_remove(.draw, "V")))
+    mutate(.draw=as.integer(str_remove(.draw, "V"))) |>
+    bind_cols(
+      read_csv(file.path(model_dir, paste0(name, "-ev-samples.csv")),
+               show_col_types=FALSE) |>
+      pivot_longer(cols=c(-set, -plant_name_id), names_to=".draw", values_to="p_threatened") |>
+      select(p_threatened)
+    )
   
   predictions <-
-    pred_samples |>
-    left_join(pred_probs, by=c("plant_name_id", "set", ".draw")) |>
-    left_join(predictions, by=c("plant_name_id", "set"))
+    predictions |>
+    left_join(
+      pred_data, 
+      by=c("plant_name_id", "set")
+    )
+  
+  rm(list=c("pred_data"))
 }
 
 ## plot predictions of % threatened ----
@@ -224,6 +237,7 @@ lifeform_preds <-
 
 family_preds <-
   predictions |>
+  filter(family %in% show_families) |>
   plot_threat(family)
 
 (pred_plots <-
@@ -234,7 +248,7 @@ family_preds <-
     theme(legend.position="bottom"))
 
 ggsave(file.path(output_dir, paste0(name, "-threat-plots.png")), pred_plots, 
-       height=10, width=10)
+       height=20, width=10)
 
 ## predictions for each WGSRPD L3 region ----
 if (".draw" %in% colnames(predictions)) {
@@ -300,7 +314,9 @@ importance <- read_csv(file.path(model_dir, paste0(name, "-random-importance.csv
                        show_col_types=FALSE)
 
 importance_plot <-
-  ggplot(data=importance, mapping=aes(x=mean_decrease_accuracy, y=variable)) +
+  importance |>
+  mutate(variable=reorder(variable, mean_decrease_accuracy)) |>
+  ggplot(mapping=aes(x=mean_decrease_accuracy, y=variable)) +
   geom_boxplot() +
   labs(x="Mean decrease in accuracy", y="")
 
