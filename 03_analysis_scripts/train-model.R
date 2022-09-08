@@ -23,6 +23,7 @@
 
 # libraries ----
 shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
+shhlibrary(dbarts)      # for a bart model if needed
 shhlibrary(tidyverse)   # packages for data handling
 shhlibrary(tidymodels)  # packages for model training and evaluation
 shhlibrary(ROCR)        # evaluate classification thresholds
@@ -166,7 +167,7 @@ registerDoParallel(cl)
 
 # this sets up a cluster for mapping chunks of data frames (model evaluation)
 cluster <- new_cluster(ncores)
-cluster_library(cluster, packages=c("dplyr", "tidymodels", "ROCR", "vip"))
+cluster_library(cluster, packages=c("dplyr", "dbarts", "tidymodels", "ROCR", "vip"))
 
 # set up model ----
 model_spec <- specify_model()
@@ -183,11 +184,11 @@ if (exists("hparam_grid")) {
   cli_alert_info("Evaluating hyperparameters on random folds")
   random_cv <- 
     random_cv |>
-    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=F)
+    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
   cli_alert_info("Evaluating hyperparameters on family folds")
   family_cv <- 
     family_cv |>
-    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=F)
+    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
   
 } else {
   cli_alert_info("No hyperparameters to tune, just evaluating on outer folds")
@@ -241,7 +242,8 @@ if (exists("hparam_grid")) {
     final_wf, 
     vfold_cv(labelled, v=5), 
     grid=hparam_grid, 
-    metrics=tune_metrics
+    metrics=tune_metrics,
+    control=control_grid(parallel_over="everything")
   )
   best_params <- select_best(final_tune, metric="roc_auc")
   final_wf <- finalize_workflow(final_wf, best_params)
