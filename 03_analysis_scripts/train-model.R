@@ -179,16 +179,24 @@ wf <-
   add_recipe(model_recipe)
 
 # tune hyperparameters if needed ----
-if (exists("hparam_grid")) {
+untuned_params <- length(extract_parameter_set_dials(wf)$name)
+  
+if (untuned_params > 0) {
   cli_alert_info("Tuning on inner resamples to find best hyperparameters")
+  
+  if (!exists("hparam_grid")) {
+    hparam_grid <- NULL
+  }
+  
   cli_alert_info("Evaluating hyperparameters on random folds")
   random_cv <- 
     random_cv |>
-    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
+    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, cluster=cluster)
+  
   cli_alert_info("Evaluating hyperparameters on family folds")
   family_cv <- 
     family_cv |>
-    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
+    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, cluster=cluster)
   
 } else {
   cli_alert_info("No hyperparameters to tune, just evaluating on outer folds")
@@ -235,16 +243,16 @@ rm(list=c("random_results", "family_results"))
 # tune and fit final model ----
 final_wf <- wf
 
-if (exists("hparam_grid")) {
+if (untuned_params > 0) {
   cli_alert_info("Tuning hyperparameters of final model")
   
-  final_tune <- tune_grid(
-    final_wf, 
-    vfold_cv(labelled, v=5), 
-    grid=hparam_grid, 
-    metrics=tune_metrics,
-    control=control_grid(parallel_over="everything")
-  )
+  final_tune <- tune_hyperparameters(
+      final_wf,
+      vfold_cv(labelled, v=5),
+      metrics=tune_metrics,
+      control=tune_control
+    )
+  
   best_params <- select_best(final_tune, metric="roc_auc")
   final_wf <- finalize_workflow(final_wf, best_params)
 }
