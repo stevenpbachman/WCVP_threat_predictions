@@ -85,7 +85,7 @@ evaluate_model <- function(splits, metrics, cluster=NULL) {
   results <- 
     results |>
     mutate(.fit=list(last_fit_threshold(.workflow, splits, metrics=metrics))) |>
-    mutate(.importance=list(permutation_importance(.fit$.fit, splits, .threshold=.threshold)))
+    mutate(.importance=list(permutation_importance(.fit$.fit, splits, .threshold=.fit$.threshold)))
   
   if (! is.null(cluster)) {
     results <- collect(results)

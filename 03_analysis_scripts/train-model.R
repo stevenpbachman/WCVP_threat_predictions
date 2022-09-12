@@ -23,6 +23,7 @@
 
 # libraries ----
 shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
+shhlibrary(dbarts)      # for a bart model if needed
 shhlibrary(tidyverse)   # packages for data handling
 shhlibrary(tidymodels)  # packages for model training and evaluation
 shhlibrary(ROCR)        # evaluate classification thresholds
@@ -166,7 +167,7 @@ registerDoParallel(cl)
 
 # this sets up a cluster for mapping chunks of data frames (model evaluation)
 cluster <- new_cluster(ncores)
-cluster_library(cluster, packages=c("dplyr", "tidymodels", "ROCR", "vip"))
+cluster_library(cluster, packages=c("dplyr", "dbarts", "tidymodels", "ROCR", "vip"))
 
 # set up model ----
 model_spec <- specify_model()
@@ -180,11 +181,11 @@ wf <-
 # tune hyperparameters if needed ----
 if (exists("hparam_grid")) {
   cli_alert_info("Tuning on inner resamples to find best hyperparameters")
-  
+  cli_alert_info("Evaluating hyperparameters on random folds")
   random_cv <- 
     random_cv |>
     tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
-  
+  cli_alert_info("Evaluating hyperparameters on family folds")
   family_cv <- 
     family_cv |>
     tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
@@ -204,8 +205,12 @@ if (exists("hparam_grid")) {
 random_results <- evaluate_model(random_cv, metrics=eval_metrics, cluster=cluster)
 cli_alert_success("Evaluated model using random CV on assessed species")
 
+rm(list=c("random_cv"))
+
 family_results <- evaluate_model(family_cv, metrics=eval_metrics, cluster=cluster)
 cli_alert_success("Evaluated model using taxonomic-block CV on assessed species")
+
+rm(list=c("family_cv"))
 
 # save results
 random_performance <- extract_performance(random_results)
@@ -218,14 +223,15 @@ random_test_pred <- extract_predictions(random_results)
 family_test_pred <- extract_predictions(family_results)
 
 write_csv(random_test_pred, file.path(output_dir, paste0(name, "-random-test-preds.csv")))
-write_csv(random_test_pred, file.path(output_dir, paste0(name, "-family-test-preds.csv")))
+write_csv(family_test_pred, file.path(output_dir, paste0(name, "-family-test-preds.csv")))
 
 random_importance <- extract_importance(random_results)
 family_importance <- extract_importance(family_results)
 
 write_csv(random_importance, file.path(output_dir, paste0(name, "-random-importance.csv")))
-write_csv(random_importance, file.path(output_dir, paste0(name, "-family-importance.csv")))
+write_csv(family_importance, file.path(output_dir, paste0(name, "-family-importance.csv")))
 
+rm(list=c("random_results", "family_results"))
 # tune and fit final model ----
 final_wf <- wf
 
@@ -248,7 +254,7 @@ fit_wf <- fit(final_wf, labelled)
 
 if (method == "bart") {
   # have to 'touch' the trees to be able to save them for predictions
-  invisible(fit_wf$fit$fit$fit$fit$state)  
+  invisible(fit_wf$fit$fit$fit$fit$state)
 }
 
 write_rds(fit_wf, file.path(model_dir, paste0(name, ".rds")))
