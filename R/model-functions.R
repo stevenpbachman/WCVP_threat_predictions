@@ -12,14 +12,31 @@
 #' @return the original `rsample` object modified with finalised workflows using the
 #'  best parameter values from each split
 #'  
-tune_hyperparameters <- function(splits, wf, grid, metrics, parallel=FALSE) {
-  splits <- 
+tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, cluster=NULL) {
+  if (! is.null(cluster)) {
+    cluster_assign(
+      cluster,
+      #functions
+      tune_over_folds=tune_over_folds
+    )
+  }
+  results <- 
     splits |>
-    rowwise() |>
-    mutate(tuning=list(tune_over_folds(inner_resamples, wf, grid, metrics,
-                                       parallel=parallel)))
+    rowwise() 
+  if (! is.null(cluster)) {
+    results <- partition(results, cluster)
+  }
   
-  splits |>
+  results <- 
+    results |>
+    mutate(tuning=list(tune_over_folds(inner_resamples, wf, metrics, grid=grid,
+                                       parallel=is.null(cluster))))
+  
+  if (! is.null(cluster)) {
+    results <- collect(results)
+  }
+  
+  results |>
     rowwise() |>
     mutate(best=list(select_best(tuning, metric="roc_auc"))) |>
     mutate(.workflow=list(finalize_workflow(wf, best))) |>
@@ -39,20 +56,34 @@ tune_hyperparameters <- function(splits, wf, grid, metrics, parallel=FALSE) {
 #' @return An updated version of the `folds` object with extra columns for the 
 #'  tuning results.
 #'
-tune_over_folds <- function(folds, wf, grid, metrics, parallel=FALSE) {
-  if (parallel) {
+tune_over_folds <- function(folds, wf, metrics, grid=NULL, parallel=FALSE) {
+  if (parallel & !is.null(grid)) {
     control <- control_grid(parallel_over="everything")
+  } else if (!is.null(grid)) {
+    control <- control_grid(event_level="second")
   } else {
-    control <- control_grid()
+    control <- control_bayes(no_improve=10, event_level="second")
   }
   
-  tune_grid(
-    wf, 
-    folds, 
-    grid=hparam_grid, 
-    metrics=tune_metrics,
-    control=control
-  )
+  if (!is.null(grid)) {
+    tune_grid(
+      wf, 
+      folds, 
+      grid=hparam_grid, 
+      metrics=tune_metrics,
+      control=control
+    )
+  } else {
+    tune_bayes(
+      wf,
+      folds,
+      initial=10,
+      iter=20,
+      metrics=tune_metrics,
+      control=control
+    )
+  }
+  
 }
 
 #' Fit and evaluate the performance of a model over cross-validation folds.
