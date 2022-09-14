@@ -44,7 +44,8 @@ if (sys.nframe() == 0L) {
     method_dir="04_model_definitions",
     model_dir="output",
     random_seed=1989,
-    force_commits=TRUE
+    force_commits=TRUE,
+    parallel=TRUE
   )
   args <- R.utils::commandArgs(asValues=TRUE,
                                excludeReserved=TRUE, excludeEnvVars=TRUE,
@@ -63,6 +64,10 @@ if (sys.nframe() == 0L) {
 
 if (! exists("random_seed")) {
   random_seed <- NULL
+}
+
+if (! exists("parallel")) {
+  parallel <- TRUE
 }
 
 if (! exists("predictor_file", mode="character")) {
@@ -161,13 +166,13 @@ eval_metrics <- metric_set(accuracy, sensitivity, specificity, j_index)
 ncores <- parallelly::availableCores()
 cli_alert_info("Using {.strong {ncores}} cores")
 
-# this sets up a cluster for hyperparameter tuning
-cl <- makePSOCKcluster(ncores)
-registerDoParallel(cl)
-
 # this sets up a cluster for mapping chunks of data frames (model evaluation)
-cluster <- new_cluster(ncores)
-cluster_library(cluster, packages=c("dplyr", "dbarts", "tidymodels", "ROCR", "vip"))
+if (parallel) {
+  cluster <- new_cluster(ncores)
+  cluster_library(cluster, packages=c("dplyr", "dbarts", "tidymodels", "ROCR", "vip"))
+} else {
+  cluster <- NULL
+}
 
 # set up model ----
 model_spec <- specify_model()
@@ -250,7 +255,8 @@ if (untuned_params > 0) {
       final_wf,
       vfold_cv(labelled, v=5),
       metrics=tune_metrics,
-      control=tune_control
+      grid=hparam_grid,
+      cluster=cluster
     )
   
   best_params <- select_best(final_tune, metric="roc_auc")

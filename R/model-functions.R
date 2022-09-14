@@ -6,8 +6,7 @@
 #' @param wf an unfinalised `workflow` object with parameters to tune
 #' @param grid a data frame specifying parameter values to try
 #' @param metrics a metric or set of metrics from to evaluate parameter values
-#' @param parallel whether or not to use parallel processing, you must have set
-#'  up a cluster already to use this
+#' @param cluster a cluster to carry out parallel processing using `multidplyr`
 #'  
 #' @return the original `rsample` object modified with finalised workflows using the
 #'  best parameter values from each split
@@ -16,6 +15,9 @@ tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, cluster=NULL) {
   if (! is.null(cluster)) {
     cluster_assign(
       cluster,
+      grid=grid,
+      wf=wf,
+      metrics=metrics,
       #functions
       tune_over_folds=tune_over_folds
     )
@@ -50,16 +52,12 @@ tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, cluster=NULL) {
 #' @param wf an unfinalised `workflow` object with parameters to tune
 #' @param grid a data frame specifying parameter values to try
 #' @param metrics a metric or set of metrics from to evaluate parameter values
-#' @param parallel whether or not to use parallel processing, you must have set
-#'  up a cluster already to use this
 #' 
 #' @return An updated version of the `folds` object with extra columns for the 
 #'  tuning results.
 #'
-tune_over_folds <- function(folds, wf, metrics, grid=NULL, parallel=FALSE) {
-  if (parallel & !is.null(grid)) {
-    control <- control_grid(parallel_over="everything")
-  } else if (!is.null(grid)) {
+tune_over_folds <- function(folds, wf, metrics, grid=NULL) {
+  if (!is.null(grid)) {
     control <- control_grid(event_level="second")
   } else {
     control <- control_bayes(no_improve=10, event_level="second")
@@ -69,8 +67,8 @@ tune_over_folds <- function(folds, wf, metrics, grid=NULL, parallel=FALSE) {
     tune_grid(
       wf, 
       folds, 
-      grid=hparam_grid, 
-      metrics=tune_metrics,
+      grid=grid, 
+      metrics=metrics,
       control=control
     )
   } else {
@@ -79,7 +77,7 @@ tune_over_folds <- function(folds, wf, metrics, grid=NULL, parallel=FALSE) {
       folds,
       initial=10,
       iter=20,
-      metrics=tune_metrics,
+      metrics=metrics,
       control=control
     )
   }

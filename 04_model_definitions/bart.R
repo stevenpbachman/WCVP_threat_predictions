@@ -23,11 +23,4 @@ specify_recipe <- function(data, ...) {
 }
 
 # HYPERPARAMETERS ----
-hparam_grid <- 
-  grid_regular(
-    trees(range=c(100, 300)),
-    prior_terminal_node_coef(range=c(0.75, 0.95)),
-    prior_terminal_node_expo(range=c(1, 3)),
-    prior_outcome_range(range=c(1, 3)),
-    levels=3
-  )
+hparam_grid <- NULL
