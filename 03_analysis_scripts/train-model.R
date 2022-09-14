@@ -60,6 +60,7 @@ if (sys.nframe() == 0L) {
   output_dir <- args$output_dir
   method_dir <- args$method_dir
   model_dir <- args$model_dir
+  parallel <- args$parallel
 }
 
 if (! exists("random_seed")) {

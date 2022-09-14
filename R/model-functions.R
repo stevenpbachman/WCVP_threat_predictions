@@ -31,8 +31,7 @@ tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, cluster=NULL) {
   
   results <- 
     results |>
-    mutate(tuning=list(tune_over_folds(inner_resamples, wf, metrics, grid=grid,
-                                       parallel=is.null(cluster))))
+    mutate(tuning=list(tune_over_folds(inner_resamples, wf, metrics, grid=grid)))
   
   if (! is.null(cluster)) {
     results <- collect(results)
