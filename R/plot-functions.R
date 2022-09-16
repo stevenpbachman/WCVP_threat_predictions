@@ -127,7 +127,7 @@ plot_threat <- function(data, y_var) {
 #'
 plot_map <- function(data, fill_var) {
   filled_regions <- 
-    rWCVPdata::wgsprd3 |>
+    rWCVPdata::wgsrpd3 |>
     left_join(data, by=c("LEVEL3_COD"="area_code_l3")) |>
     st_wrap_dateline(options=c("WRAPDATELINE=YES", "DATELINEOFFSET=180")) |>
     st_transform(st_crs("+proj=igh"))

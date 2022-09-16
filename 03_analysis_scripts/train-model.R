@@ -251,14 +251,24 @@ final_wf <- wf
 
 if (untuned_params > 0) {
   cli_alert_info("Tuning hyperparameters of final model")
-  
-  final_tune <- tune_hyperparameters(
+  if (is.null(hparam_grid)){
+    final_tune <- tune_bayes(
+      final_wf,
+      vfold_cv(labelled, v=5),
+      metrics=tune_metrics,
+      initial=10,
+      iter=20,
+      control=control_bayes(no_improve=10, event_level="second")
+    )
+  } else {
+    final_tune <- tune_grid(
       final_wf,
       vfold_cv(labelled, v=5),
       metrics=tune_metrics,
       grid=hparam_grid,
-      cluster=cluster
+      control=control_grid(event_level="second")
     )
+  }
   
   best_params <- select_best(final_tune, metric="roc_auc")
   final_wf <- finalize_workflow(final_wf, best_params)
