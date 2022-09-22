@@ -33,12 +33,13 @@ plot_performance_bars <- function(data, y_var, fill_var=NULL, metric=NULL) {
   }
   
   if ("n" %in% colnames(data)) {
-    p <- p + geom_text(mapping=aes(label=n), hjust=-0.1)
+    p <- p + geom_text(mapping=aes(label=n, group=.data[[fill_var]]), hjust=-0.1, 
+                       position=position_dodge(width=1))
   }
     
   p <- p +
-    labs(x="", y="") +
-    lims(x=c(0, 1))
+    scale_x_continuous(limits=c(0, 1), expand=expansion(add=0.1)) +
+    labs(x="", y="")
   
   if (is.null(metric)) {
     p <- p + facet_wrap(~.metric)
@@ -100,7 +101,9 @@ plot_threat <- function(data, y_var) {
               status="predicted",
               .groups="drop") |>
     bind_rows(obs) |>
-    mutate({{ y_var }} := reorder({{ y_var }}, threatened))
+    pivot_wider(names_from=status, values_from=threatened) |>
+    mutate({{ y_var }} := reorder({{ y_var }}, predicted)) |>
+    pivot_longer(c(observed, predicted), names_to="status", values_to="threatened")
   
   p <- ggplot(data=props, mapping=aes(y={{ y_var }}, x=threatened))
   
@@ -124,13 +127,13 @@ plot_threat <- function(data, y_var) {
 #'
 plot_map <- function(data, fill_var) {
   filled_regions <- 
-    rWCVPdata::wgsprd3 |>
+    rWCVPdata::wgsrpd3 |>
     left_join(data, by=c("LEVEL3_COD"="area_code_l3")) |>
     st_wrap_dateline(options=c("WRAPDATELINE=YES", "DATELINEOFFSET=180")) |>
     st_transform(st_crs("+proj=igh"))
   
   ggplot() +
-    geom_sf(data=filled_regions, mapping=aes(fill={{ fill_var }}), colour="grey90") +
+    geom_sf(data=filled_regions, mapping=aes(fill={{ fill_var }}), colour="grey90", size=0.5/.pt) +
     geom_sf(data=goode_outline(mask=TRUE), colour=NA, fill="#ffffff", size=0.5/.pt) +
     geom_sf(data=goode_outline(), fill=NA, colour="grey50", size=0.5) +
     scico::scale_fill_scico(

@@ -23,6 +23,7 @@
 
 # libraries ----
 shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
+shhlibrary(dbarts)      # for a bart model if needed
 shhlibrary(tidyverse)   # packages for data handling
 shhlibrary(tidymodels)  # packages for model training and evaluation
 shhlibrary(ROCR)        # evaluate classification thresholds
@@ -43,7 +44,8 @@ if (sys.nframe() == 0L) {
     method_dir="04_model_definitions",
     model_dir="output",
     random_seed=1989,
-    force_commits=TRUE
+    force_commits=TRUE,
+    parallel=TRUE
   )
   args <- R.utils::commandArgs(asValues=TRUE,
                                excludeReserved=TRUE, excludeEnvVars=TRUE,
@@ -58,10 +60,15 @@ if (sys.nframe() == 0L) {
   output_dir <- args$output_dir
   method_dir <- args$method_dir
   model_dir <- args$model_dir
+  parallel <- args$parallel
 }
 
 if (! exists("random_seed")) {
   random_seed <- NULL
+}
+
+if (! exists("parallel")) {
+  parallel <- TRUE
 }
 
 if (! exists("predictor_file", mode="character")) {
@@ -160,13 +167,13 @@ eval_metrics <- metric_set(accuracy, sensitivity, specificity, j_index)
 ncores <- parallelly::availableCores()
 cli_alert_info("Using {.strong {ncores}} cores")
 
-# this sets up a cluster for hyperparameter tuning
-cl <- makePSOCKcluster(ncores)
-registerDoParallel(cl)
-
 # this sets up a cluster for mapping chunks of data frames (model evaluation)
-cluster <- new_cluster(ncores)
-cluster_library(cluster, packages=c("dplyr", "tidymodels", "ROCR", "vip"))
+if (parallel) {
+  cluster <- new_cluster(ncores)
+  cluster_library(cluster, packages=c("dplyr", "dbarts", "tidymodels", "ROCR", "vip"))
+} else {
+  cluster <- NULL
+}
 
 # set up model ----
 model_spec <- specify_model()
@@ -178,16 +185,24 @@ wf <-
   add_recipe(model_recipe)
 
 # tune hyperparameters if needed ----
-if (exists("hparam_grid")) {
+untuned_params <- length(extract_parameter_set_dials(wf)$name)
+  
+if (untuned_params > 0) {
   cli_alert_info("Tuning on inner resamples to find best hyperparameters")
   
+  if (!exists("hparam_grid")) {
+    hparam_grid <- NULL
+  }
+  
+  cli_alert_info("Evaluating hyperparameters on random folds")
   random_cv <- 
     random_cv |>
-    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
+    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, cluster=cluster)
   
+  cli_alert_info("Evaluating hyperparameters on family folds")
   family_cv <- 
     family_cv |>
-    tune_hyperparameters(wf, grid=hparam_grid, metrics=tune_metrics, parallel=T)
+    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, cluster=cluster)
   
 } else {
   cli_alert_info("No hyperparameters to tune, just evaluating on outer folds")
@@ -204,8 +219,12 @@ if (exists("hparam_grid")) {
 random_results <- evaluate_model(random_cv, metrics=eval_metrics, cluster=cluster)
 cli_alert_success("Evaluated model using random CV on assessed species")
 
+rm(list=c("random_cv"))
+
 family_results <- evaluate_model(family_cv, metrics=eval_metrics, cluster=cluster)
 cli_alert_success("Evaluated model using taxonomic-block CV on assessed species")
+
+rm(list=c("family_cv"))
 
 # save results
 random_performance <- extract_performance(random_results)
@@ -218,27 +237,39 @@ random_test_pred <- extract_predictions(random_results)
 family_test_pred <- extract_predictions(family_results)
 
 write_csv(random_test_pred, file.path(output_dir, paste0(name, "-random-test-preds.csv")))
-write_csv(random_test_pred, file.path(output_dir, paste0(name, "-family-test-preds.csv")))
+write_csv(family_test_pred, file.path(output_dir, paste0(name, "-family-test-preds.csv")))
 
 random_importance <- extract_importance(random_results)
 family_importance <- extract_importance(family_results)
 
 write_csv(random_importance, file.path(output_dir, paste0(name, "-random-importance.csv")))
-write_csv(random_importance, file.path(output_dir, paste0(name, "-family-importance.csv")))
+write_csv(family_importance, file.path(output_dir, paste0(name, "-family-importance.csv")))
 
+rm(list=c("random_results", "family_results"))
 # tune and fit final model ----
 final_wf <- wf
 
-if (exists("hparam_grid")) {
+if (untuned_params > 0) {
   cli_alert_info("Tuning hyperparameters of final model")
+  if (is.null(hparam_grid)){
+    final_tune <- tune_bayes(
+      final_wf,
+      vfold_cv(labelled, v=5),
+      metrics=tune_metrics,
+      initial=10,
+      iter=20,
+      control=control_bayes(no_improve=10, event_level="second")
+    )
+  } else {
+    final_tune <- tune_grid(
+      final_wf,
+      vfold_cv(labelled, v=5),
+      metrics=tune_metrics,
+      grid=hparam_grid,
+      control=control_grid(event_level="second")
+    )
+  }
   
-  final_tune <- tune_grid(
-    final_wf, 
-    vfold_cv(labelled, v=5), 
-    grid=hparam_grid, 
-    metrics=tune_metrics,
-    control=control_grid(parallel_over="everything")
-  )
   best_params <- select_best(final_tune, metric="roc_auc")
   final_wf <- finalize_workflow(final_wf, best_params)
 }
@@ -248,7 +279,7 @@ fit_wf <- fit(final_wf, labelled)
 
 if (method == "bart") {
   # have to 'touch' the trees to be able to save them for predictions
-  invisible(fit_wf$fit$fit$fit$fit$state)  
+  invisible(fit_wf$fit$fit$fit$fit$state)
 }
 
 write_rds(fit_wf, file.path(model_dir, paste0(name, ".rds")))
