@@ -50,6 +50,7 @@ tdwg <- tdwg %>%
   
   
   # plot the two datasets ----
+<<<<<<< HEAD
   # ggplot()+
   #   geom_sf(data=wwf_agg_bio, colour="transparent", aes(fill=biome_name))+
   #   geom_sf(data=tdwg, colour="gray20", fill="transparent")+
@@ -59,6 +60,18 @@ tdwg <- tdwg %>%
   # 
   # ggsave("05_figures/tdwg_biomes.svg", width=12, height=8)
   # ggsave("05_figures/tdwg_biomes.png", width=23, height=14.3)
+=======
+  ggplot()+
+    geom_sf(data=wwf_agg_bio, colour="transparent", aes(fill=biome_name))+
+    geom_sf(data=tdwg, colour="gray20", fill="transparent")+
+    scale_fill_manual(values=wwf_agg_bio$fill)+
+    coord_sf(expand=FALSE, crs="ESRI:54009")+
+    theme_void()+
+    guides(fill=guide_legend("Biome"))
+  
+  ggsave("05_figures/tdwg_biomes.svg")
+  ggsave("05_figures/tdwg_biomes.png")
+>>>>>>> e2233f77e239498a0f3152c638a49e4ee97ebf87
   
   # calculate areas of each biome per tdwg region ----
   
