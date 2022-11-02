@@ -134,8 +134,8 @@ predictors <- filter(predictors, ! category %in% c("EW", "EX"))
 old_codes_map <- c("LR/cd"="NT", "LR/lc"="LC", "LR/nt"="NT")
 predictors$category <- recode(predictors$category, !!! old_codes_map)
 
-predictors$humphreys_lifeform <- factor(predictors$humphreys_lifeform)
-predictors$climate_description <- factor(predictors$climate_description)
+factor_vars <- c("humphreys_lifeform", "climate_description", "genus", "family", "order", "higher_groups")
+predictors <- mutate(predictors, across(all_of(factor_vars), ~factor(.x)))
 
 labelled <- filter(predictors, ! is.na(category), category != "DD")
 unlabelled <- filter(predictors, is.na(category) | category == "DD")
@@ -190,8 +190,10 @@ untuned_params <- length(extract_parameter_set_dials(wf)$name)
 if (untuned_params > 0) {
   cli_alert_info("Tuning on inner resamples to find best hyperparameters")
   
-  if (!exists("hparam_grid")) {
+  if (!exists("make_grid")) {
     hparam_grid <- NULL
+  } else {
+    hparam_grid <- make_grid(labelled)
   }
   
   cli_alert_info("Evaluating hyperparameters on random folds")
