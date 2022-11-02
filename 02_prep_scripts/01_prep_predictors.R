@@ -1,150 +1,136 @@
-
 # load in and wrangle the predictor data
 
-library(dplyr)
-library(readr)
-library(tidyr)
-library(glue)
-library(tidyverse)
+# libraries ----
+library(tidyverse) # data manipulation libaries
+library(glue)      # string interpolation
 library(scales)
 
+# load data ----
 # load in the new phyt special version of WCVP
 wcvp_names <- read_delim("01_raw_data/wcvp_names.txt",
-                               "|", 
-                               escape_double = FALSE, 
-                               trim_ws = TRUE)
+                         delim="|", escape_double=FALSE, 
+                         trim_ws = TRUE)
 
+wcvp_dist <- read_delim("01_raw_data/wcvp_distributions.txt",
+                        delim="|", escape_double=FALSE,
+                        trim_ws=TRUE)
+
+phylo_vectors <- 
+  read_csv("01_raw_data/eigenvectors_selected_BS_252_0.2.csv") |>
+  rename("genus"="...1") |>
+  rename_with(~str_replace(.x, "c", "pvr"), starts_with("c"))
+
+biome_names <- c(
+  "biome_trop.mf"="Tropical and subtropical moist broadleaf forests",
+  "biome_trop.df"="Tropical and subtropical dry broadleaf forests",
+  "biome_trop.cf"="Tropical and subtropical coniferous forests",
+  "biome_temp.bf"="Temperate broadleaf and mixed forests",
+  "biome_temp.cf"="Temperate coniferous forests",
+  "biome_boreal"="Boreal forests/taiga",
+  "biome_trop.grass"="Tropical and subtropical grasslands, savannas, and shrublands",
+  "biome_temp.grass"="Temperate grasslands, savannas, and shrublands",
+  "biome_flood.grass"="Flooded grasslands and savannas",
+  "biome_mont.grass"="Montane grasslands and shrublands",
+  "biome_tundra"="Tundra",
+  "biome_med.f"="Mediterranean forests, woodlands, and shrub",
+  "biome_deserts"="Deserts and xeric shrublands",
+  "biome_mangrove"="Mangrove",
+  "biome_lake"="Lake",
+  "biome_rock.ice"="Rock and Ice"
+)
+
+tdwg_vars <- 
+  read_csv("01_raw_data/tdwg-derived-predictors_percent-of-range.csv") |>
+  rename(!!! biome_names) |>
+  mutate(across(-c(plant_name_id, taxon_name, area), ~.x/100))
+
+apg_families <- 
+  read_csv("01_raw_data/APGIV_families_orders_IUCN_crosswalk.csv") |>
+  select("higher_groups"="HigherGroups", "order"="APG IV Order",
+         "family"="APG IV Family")
+
+redlist <- read_csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv")
+
+# generate species list ----
 # filter on the accepted names only
-wcvp_acc = wcvp_names %>%
+species_list <-  
+  wcvp_names |>
   filter(taxon_rank == "Species",
-         taxon_status == "Accepted")
-
-# get total accepted
-tot_acc <- nrow(wcvp_acc)
-
-# thin out the table
-wcvp_thin <- wcvp_acc %>%
-  select(plant_name_id,taxon_name,family,genus, lifeform_description, climate_description)
-
-# link orders and higher groups
-APGIV_families_orders_IUCN_crosswalk <- read.csv("01_raw_data/APGIV_families_orders_IUCN_crosswalk.csv")
-apg_fams <- APGIV_families_orders_IUCN_crosswalk %>%
-  select(!IUCN.Family)
-
-wcvp_thin <-  left_join(wcvp_thin, apg_fams, by = c("family" = "APG.IV.Family"))
+         taxon_status == "Accepted",
+         !is.na(taxon_name),
+         is.na(genus_hybrid),
+         is.na(species_hybrid)) |>
+  select(plant_name_id, taxon_name, family, genus, lifeform_description, climate_description) |>
+  left_join(apg_families, by="family")
 
 # get total number of accepted angiosperms
-angio = wcvp_thin %>%
-  filter(complete.cases(HigherGroups))
+species_list <- filter(species_list, !is.na(higher_groups))
 
-glue("There are", "{nrow(angio)}", "accepted angiosperm species", .sep=" ")
+glue::glue("There are", "{nrow(species_list)}", "accepted angiosperm species", .sep=" ")
 
-# set factors
-angio$climate_description <- as.factor(angio$climate_description)
-angio$APG.IV.Order  <- as.factor(angio$APG.IV.Order )
-angio$family <- as.factor(angio$family)
-angio$genus <- as.factor(angio$genus)
-angio$lifeform_description <- as.factor(angio$lifeform_description)
+str(species_list)
 
-str(angio)
+# check missing values ----
+cat("Missing values from WCVP:")
+species_list |>
+  select(family, genus, lifeform_description, climate_description) |>
+  summarise(across(everything(), ~sum(is.na(.x))))
 
-#### Pred 1 - 2 family and genus ####
-# done
-
-# check for missing values
-missing_family <- angio %>%
-  filter(!complete.cases(family))
-
-missing_genus <- angio %>%
-  filter(!complete.cases(genus))
-
-missing_lifeform <- angio %>%
-  filter(!complete.cases(lifeform_description))
-
-missing_climate <- angio %>%
-  filter(!complete.cases(climate_description))
-
-glue("There are {nrow(missing_family)} missing families", 
-     "There are {nrow(missing_genus)} missing genera", 
-     "There are {nrow(missing_lifeform)} missing lifeforms", 
-     "There are {nrow(missing_climate)} missing climate descriptions", 
-     .sep="\n ")
-
-# pred 1 = family
-# pred 2 = genus
-
-#### Pred 3 - dominant life form (Humphreys) ####
-life_forms <- angio %>%
-  select(plant_name_id, lifeform_description)
-
-# check the unique life form values
-life_forms_unique <- data.frame(lifeform = unique(life_forms$lifeform_description))
+# standardise lifeform ----
 
 # import the mapping used by Humphreys
 life_form_mapping <-  read_csv("01_raw_data/life_form_mapping.csv")
 
 # join mapping to wcvp_thin
-angio <- left_join(angio, life_form_mapping, by = "lifeform_description")
+predictors <- left_join(species_list, life_form_mapping, by="lifeform_description")
 
-angio$humphreys_lifeform <- as.factor(angio$humphreys_lifeform)
+# count regions per species ----
 
-# pred 3 = humphreys_lifeform
+region_counts <- 
+  wcvp_dist |>
+  filter(introduced + extinct + location_doubtful == 0) |>
+  group_by(plant_name_id) |>
+  summarise(
+    L3_count=n_distinct(area_code_l3)
+  )
 
-#### Pred 4 - count of lifeforms ####
-#humphreys_unique <- data.frame(lifeform = unique(life_form_mapping$humphreys_lifeform))
+predictors <- inner_join(predictors, region_counts, by="plant_name_id")
 
-# need to think about this - what about 'sometimes' and 'somewhat'?
+# join phylovectors ----
 
-# try first separation with comma?
-#life_forms_tidy = life_forms_unique %>%
-#  separate(lifeform, into = c("first", "second"), sep = ", ")
+predictors <-
+  predictors |>
+  left_join(
+    phylo_vectors,
+    by="genus"
+  )
 
+# join tdwg-based predictors ----
 
-#### Pred 5- count of TDWG regions per species ####
-# load in the new phyt special version of WCVP distributions
-wcvp_geog <- read.table("01_raw_data/wcvp_distribution.txt", sep="|", header=TRUE, quote = "", fill=TRUE, encoding = "UTF-8") 
+predictors <-
+  predictors |>
+  left_join(
+    tdwg_vars,
+    by=c("plant_name_id", "taxon_name")
+  )
 
-# thin out the files and filter out introduced, extinct and location doubtfull
-geog_thin <- wcvp_geog %>%
-  filter(introduced == "0" & extinct == "0", location_doubtful == "0"  ) %>%
-  select(plant_name_id, area_code_l3)
+# link RL assessments ----
+predictors <- 
+  predictors |>
+  left_join(
+    redlist |> select(category, accepted_plant_name_id), 
+    by=c("plant_name_id"="accepted_plant_name_id")
+  )
 
-# get the count of TDWG regions per species
-count_geog <- geog_thin %>%
-  group_by(plant_name_id) %>%
-  summarise(L3_count = n_distinct(area_code_l3))
+# check missing values again ----
+cat("Missing predictor values:")
+predictors |>
+  summarise(across(everything(), ~sum(is.na(.x)))) |>
+  pivot_longer(everything()) |>
+  filter(value > 0) |>
+  arrange(desc(value))
 
-# join mapping to wcvp_thin
-angio <- left_join(angio, count_geog, by = "plant_name_id")
-
-#### remove NAs ####
-#for final list to try model on 
-angio_pred_v1 <-  angio %>%
-  filter(complete.cases(family),
-         complete.cases(climate_description),
-         complete.cases(HigherGroups),         
-         complete.cases(humphreys_lifeform),
-         complete.cases(L3_count))
-
-glue("We have {nrow(angio_pred_v1)} angiosperm species to model", "({percent_format(accuracy=0.1)(nrow(angio_pred_v1)/nrow(angio))})",
-     .sep=" ")
-
-
-#### link RL assessments ####
-rl <- read.csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv")
-
-# now join threat status to wcvp 
-angio_pred_v1 <- left_join(angio_pred_v1, rl, by = c("plant_name_id" = "accepted_plant_name_id"))
-
-str(angio_pred_v1)
-# save it   
-#write_csv(angio_pred_v1, paste0("03_analysis_scripts/angio_pred_v1.csv"))
-
-
-  
-
-
-
-  
-  
-  
+# save to file ----
+now <- format(Sys.time(), "%Y%m%d-%H%M%S")
+name <- paste("predictors-angiosperm", now, sep="-")
+write_csv(predictors, file.path("output", paste0(name, ".csv")))
