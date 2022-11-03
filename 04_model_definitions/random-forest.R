@@ -14,7 +14,8 @@ specify_recipe <- function(data, ...) {
   outcome <- "obs"
   predictors <- c(
     "L3_count",
-    "humphreys_lifeform"
+    "humphreys_lifeform",
+    "year"
   )
   impute_phylo <- c(
     "higher_groups",
