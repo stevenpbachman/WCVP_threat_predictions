@@ -3,6 +3,7 @@
 # libraries ----
 library(tidyverse) # data manipulation libaries
 library(glue)      # string interpolation
+library(scales)
 
 # load data ----
 # load in the new phyt special version of WCVP
@@ -49,8 +50,6 @@ apg_families <-
          "family"="APG IV Family")
 
 redlist <- read_csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv")
-
-wcvp_YoD <- read_csv("01_raw_data/wcvp_YoD.csv")
 
 # generate species list ----
 # filter on the accepted names only
@@ -121,14 +120,6 @@ predictors <-
   left_join(
     redlist |> select(category, accepted_plant_name_id), 
     by=c("plant_name_id"="accepted_plant_name_id")
-  )
-
-# link RL assessments ----
-predictors <- 
-  predictors |>
-  left_join(
-    wcvp_YoD |> select(year, plant_name_id), 
-    by=c"plant_name_id"
   )
 
 # check missing values again ----

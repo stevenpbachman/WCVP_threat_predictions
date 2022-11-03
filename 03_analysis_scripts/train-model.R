@@ -40,9 +40,9 @@ cli_h1("Running extinction risk prediction method")
 
 if (sys.nframe() == 0L) {
   default_args <- list(
-    output_dir="05_outputs",
+    output_dir="output",
     method_dir="04_model_definitions",
-    model_dir="05_outputs",
+    model_dir="output",
     random_seed=1989,
     force_commits=TRUE,
     parallel=TRUE
