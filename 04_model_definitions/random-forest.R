@@ -16,7 +16,8 @@ specify_recipe <- function(data, ...) {
     "L3_count",
     "humphreys_lifeform",
     "climate_description",
-    "area"
+    "area",
+    "year"
   )
   impute_phylo <- c(
     "higher_groups",
