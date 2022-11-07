@@ -33,6 +33,8 @@ specify_recipe <- function(data, ...) {
     recipe() |>
     update_role(all_of(outcome), new_role="outcome") |>
     update_role(one_of(predictors), new_role="predictor") |>
+    update_role(starts_with("pvr"), new_role="predictor") |>
+    update_role(starts_with("biome"), new_role="predictor") |>
     update_role(setdiff(impute_phylo, predictors), new_role="impute phylo") |>
     add_role(intersect(predictors, impute_phylo), new_role="impute phylo") |>
     step_unknown(
