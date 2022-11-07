@@ -113,7 +113,11 @@ evaluate_model <- function(splits, metrics, cluster=NULL) {
   results <- 
     results |>
     mutate(.fit=list(last_fit_threshold(.workflow, splits, metrics=metrics))) |>
-    mutate(.importance=list(permutation_importance(.fit$.fit, splits, .threshold=.fit$.threshold)))
+    mutate(.metrics=list(.fit$.metrics)) |>
+    mutate(.threshold=.fit$.threshold) |>
+    mutate(.preds=list(.fit$.predictions)) |>
+    mutate(.importance=list(permutation_importance(.fit$.fit, splits, .threshold=.fit$.threshold))) |>
+    select(-.fit)
   
   if (! is.null(cluster)) {
     results <- collect(results)
@@ -216,8 +220,6 @@ choose_threshold <- function(preds, labels) {
 extract_performance <- function(results) {
   results |>
     rowwise() |>
-    mutate(.metrics=list(.fit$.metrics)) |>
-    mutate(.threshold=.fit$.threshold) |>
     select(id, .metrics, .threshold) |>
     unnest(.metrics)
 }
@@ -229,7 +231,6 @@ extract_performance <- function(results) {
 extract_predictions <- function(results) {
   results |>
     rowwise() |>
-    mutate(.preds=list(.fit$.predictions)) |>
     select(id, .preds) |>
     unnest(.preds)
 }
