@@ -27,7 +27,7 @@ specify_recipe <- function(data, ...) {
 
   rec <- 
     data |>
-    select(all_of(c(outcome, predictors, impute_phylo)), matches("pvr([0-9]|[0-4][0-9]|[50])$"), starts_with("biome"), starts_with("hfp")) |>
+    select(all_of(c(outcome, predictors, impute_phylo)), matches("pvr([0-9]|[0-4][0-9]|50)$"), starts_with("biome"), starts_with("hfp")) |>
     recipe() |>
     update_role(all_of(outcome), new_role="outcome") |>
     update_role(one_of(predictors), new_role="predictor") |>
@@ -51,7 +51,8 @@ specify_recipe <- function(data, ...) {
       starts_with("hfp"),
       impute_with=imp_vars(starts_with("biome"))
     ) |>
-    step_log(L3_count)
+    step_log(L3_count) |>
+    step_mutate(year=replace_na(year, min(year, na.rm=TRUE)))
 
   rec
 }
