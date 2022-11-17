@@ -5,3 +5,11 @@
 *.sh
 *.out
 *.pdf
+*.html
+*.md
+*.rds
+*.zip
+*.Rmd
+*.csv
+data/
+output/
