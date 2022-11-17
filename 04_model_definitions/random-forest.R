@@ -57,6 +57,3 @@ specify_recipe <- function(data, ...) {
 }
 
 # HYPERPARAMETERS ----
-make_grid <- function(data) {
-  NULL
-}
