@@ -191,6 +191,21 @@ country_perf <-
 
 ggsave(file.path(output_dir, paste0(name, "-performance-map.png")), perf_map)
 
+# interpretation ----
+
+# variable importance
+importance <- read_csv(file.path(model_dir, paste0(name, "-random-importance.csv")),
+                       show_col_types=FALSE)
+
+importance_plot <-
+  importance |>
+  mutate(variable=reorder(variable, mean_decrease_accuracy)) |>
+  ggplot(mapping=aes(x=mean_decrease_accuracy, y=variable)) +
+  geom_boxplot() +
+  labs(x="Mean decrease in accuracy", y="")
+
+ggsave(file.path(output_dir, paste0(name, "-importance-plot.png")), importance_plot)
+
 # predictions ----
 # load posterior samples if they're there
 ppd_file <- list.files(model_dir, pattern=paste0(name, "-ppd-samples"))
@@ -307,17 +322,3 @@ if (".draw" %in% colnames(predictions)) {
   ggsave(file.path(output_dir, paste0(name, "-uncertainty-map.png")), post_map)
 }
 
-# interpretation ----
-
-# variable importance
-importance <- read_csv(file.path(model_dir, paste0(name, "-random-importance.csv")),
-                       show_col_types=FALSE)
-
-importance_plot <-
-  importance |>
-  mutate(variable=reorder(variable, mean_decrease_accuracy)) |>
-  ggplot(mapping=aes(x=mean_decrease_accuracy, y=variable)) +
-  geom_boxplot() +
-  labs(x="Mean decrease in accuracy", y="")
-
-ggsave(file.path(output_dir, paste0(name, "-importance-plot.png")), importance_plot)

@@ -11,9 +11,11 @@ wcvp_names <- read_delim("01_raw_data/wcvp_names.txt",
                          delim="|", escape_double=FALSE, 
                          trim_ws = TRUE)
 
-wcvp_dist <- read_delim("01_raw_data/wcvp_distributions.txt",
-                        delim="|", escape_double=FALSE,
-                        trim_ws=TRUE)
+wcvp_dist <- 
+  read_delim("01_raw_data/wcvp_distributions.txt",
+             delim="|", escape_double=FALSE, trim_ws=TRUE) |>
+  filter(introduced + extinct + location_doubtful == 0) |>
+  filter(! is.na(area_code_l3))
 
 phylo_vectors <- 
   read_csv("01_raw_data/eigenvectors_selected_BS_252_0.2.csv") |>
@@ -65,10 +67,11 @@ species_list <-
 
 # get total number of accepted angiosperms
 species_list <- filter(species_list, !is.na(higher_groups))
+species_list <- filter(species_list, plant_name_id %in% wcvp_dist$plant_name_id)
 
-glue::glue("There are", "{nrow(species_list)}", "accepted angiosperm species", .sep=" ")
+cat(glue::glue("There are", "{nrow(species_list)}", "accepted angiosperm species", .sep=" "))
 
-str(species_list)
+cat(str(species_list))
 
 # check missing values ----
 cat("Missing values from WCVP:")
@@ -129,6 +132,17 @@ predictors |>
   pivot_longer(everything()) |>
   filter(value > 0) |>
   arrange(desc(value))
+
+missing <- 
+  predictors |>
+  summarise(across(everything(), ~sum(is.na(.x)))) |>
+  pivot_longer(everything()) |>
+  filter(value > 0) |>
+  arrange(desc(value))
+
+cat(missing$name)
+
+cat(glue::glue("{sum(!is.na(predictors$category))} assessed species"))
 
 # save to file ----
 now <- format(Sys.time(), "%Y%m%d-%H%M%S")
