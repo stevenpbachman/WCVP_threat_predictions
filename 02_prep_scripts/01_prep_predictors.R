@@ -13,6 +13,8 @@ wcvp_names <- read_delim("01_raw_data/wcvp_names.txt",
 wcvp_dist <- 
   read_delim("01_raw_data/wcvp_distributions.txt",
              delim="|", escape_double=FALSE, trim_ws=TRUE) |>
+  mutate(area_code_l3=na_if(area_code_l3, "")) |>
+  mutate(area_code_l3=str_to_upper(area_code_l3)) |>
   filter(introduced + extinct + location_doubtful == 0) |>
   filter(! is.na(area_code_l3))
 
@@ -52,7 +54,7 @@ apg_families <-
 
 redlist <- read_csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv")
 
-wcvp_YoD <- read_csv("01_raw_data/wcvp_YoD")
+description_year <- read_csv("01_raw_data/wcvp_YoD")
 
 # generate species list ----
 # filter on the accepted names only
@@ -130,7 +132,7 @@ predictors <-
 predictors <- 
   predictors |>
   left_join(
-    wcvp_YoD |> select(year, plant_name_id), 
+    description_year |> select(year, plant_name_id), 
     by="plant_name_id"
   )
 
