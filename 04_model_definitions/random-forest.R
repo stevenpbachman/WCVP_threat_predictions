@@ -52,13 +52,11 @@ specify_recipe <- function(data, ...) {
       impute_with=imp_vars(starts_with("biome"))
     ) |>
     step_log(L3_count)
+
+  rec
 }
 
 # HYPERPARAMETERS ----
 make_grid <- function(data) {
-  grid_regular(
-    min_n(),
-    mtry(range=c(3, 15)),
-    levels=3
-  )
+  NULL
 }

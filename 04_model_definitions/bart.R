@@ -12,15 +12,52 @@ specify_model <- function() {
 
 # PRE-PROCESSING SPECIFICATION ----
 specify_recipe <- function(data, ...) {
-  form <- formula(
-    obs ~ L3_count + humphreys_lifeform + climate_description
+  outcome <- "obs"
+  predictors <- c(
+    "L3_count",
+    "humphreys_lifeform",
+    "year"
   )
-  rec <- recipe(form, data=data) |>
-    step_log(L3_count) |>
-    step_unknown(humphreys_lifeform)
-  
+  impute_phylo <- c(
+    "higher_groups",
+    "order",
+    "family",
+    "genus",
+    "humphreys_lifeform"
+  )
+
+  rec <- 
+    data |>
+    select(all_of(c(outcome, predictors, impute_phylo)), matches("pvr([0-9]|[0-4][0-9]|[50])$"), starts_with("biome"), starts_with("hfp")) |>
+    recipe() |>
+    update_role(all_of(outcome), new_role="outcome") |>
+    update_role(one_of(predictors), new_role="predictor") |>
+    update_role(starts_with("pvr"), new_role="predictor") |>
+    update_role(starts_with("biome"), new_role="predictor") |>
+    update_role(starts_with("hfp"), new_role="predictor") |>
+    update_role(setdiff(impute_phylo, predictors), new_role="impute phylo") |>
+    add_role(intersect(predictors, impute_phylo), new_role="impute phylo") |>
+    step_unknown(
+      humphreys_lifeform
+    ) |>
+    step_impute_knn(
+      starts_with("pvr"), 
+      impute_with=imp_vars(has_role(match="impute phylo"))
+    ) |>
+    step_impute_knn(
+      starts_with("biome"),
+      impute_with=imp_vars(starts_with("pvr"))
+    ) |>
+    step_impute_knn(
+      starts_with("hfp"),
+      impute_with=imp_vars(starts_with("biome"))
+    ) |>
+    step_log(L3_count)
+
   rec
 }
 
 # HYPERPARAMETERS ----
-hparam_grid <- NULL
+make_grid <- function(data) {
+  NULL
+}
