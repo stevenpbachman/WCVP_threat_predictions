@@ -11,12 +11,13 @@
 #' @return the original `rsample` object modified with finalised workflows using the
 #'  best parameter values from each split
 #'  
-tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, cluster=NULL) {
+tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, param_info=NULL, cluster=NULL) {
   if (! is.null(cluster)) {
     cluster_assign(
       cluster,
       grid=grid,
       wf=wf,
+      param_info=param_info,
       metrics=metrics,
       #functions
       tune_over_folds=tune_over_folds
@@ -31,7 +32,7 @@ tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, cluster=NULL) {
   
   results <- 
     results |>
-    mutate(tuning=list(tune_over_folds(inner_resamples, wf, metrics, grid=grid)))
+    mutate(tuning=list(tune_over_folds(inner_resamples, wf, metrics, grid=grid, param_info=param_info)))
   
   if (! is.null(cluster)) {
     results <- collect(results)
@@ -55,7 +56,7 @@ tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, cluster=NULL) {
 #' @return An updated version of the `folds` object with extra columns for the 
 #'  tuning results.
 #'
-tune_over_folds <- function(folds, wf, metrics, grid=NULL) {
+tune_over_folds <- function(folds, wf, metrics, grid=NULL, param_info=NULL) {
   if (!is.null(grid)) {
     control <- control_grid(event_level="second")
   } else {
@@ -76,6 +77,7 @@ tune_over_folds <- function(folds, wf, metrics, grid=NULL) {
       folds,
       initial=10,
       iter=20,
+      param_info=param_info,
       metrics=metrics,
       control=control
     )
