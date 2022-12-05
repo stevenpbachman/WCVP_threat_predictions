@@ -182,14 +182,98 @@ country_perf <-
   left_join(test_preds, by="plant_name_id") |>
   disaggregate_performance(cv, area_code_l3, metrics=metrics)
 
-(perf_map <-
+(tss_map <-
   country_perf |>
   filter(.metric == "j_index",
          cv == "Random CV") |>
-  rename(`J index`=.estimate) |>
-  plot_map(`J index`))
+  rename(TSS=.estimate) |>
+  plot_map(TSS, .proj="moll", .points=TRUE) +
+    scico::scale_fill_scico(
+      palette="cork",
+      na.value="grey80",
+      name="TSS",
+      limits=c(-1, 1)
+    ) +
+    scico::scale_colour_scico(
+      palette="cork",
+      na.value="grey80",
+      name="TSS",
+      limits=c(-1, 1)
+    ))
+
+(sens_map <-
+    country_perf |>
+    filter(.metric == "sensitivity",
+           cv == "Random CV") |>
+    rename(Sensitivity=.estimate) |>
+    plot_map(Sensitivity, .proj="moll", .points=TRUE) +
+    scico::scale_fill_scico(
+      palette="oslo",
+      na.value="grey80",
+      name="Sensitivity",
+      direction=-1,
+      limits=c(0, 1)
+    ) +
+    scico::scale_colour_scico(
+      palette="oslo",
+      na.value="grey80",
+      name="Sensitivity",
+      direction=-1,
+      limits=c(0, 1)
+    ))
+
+(spec_map <-
+    country_perf |>
+    filter(.metric == "specificity",
+           cv == "Random CV") |>
+    rename(Specificity=.estimate) |>
+    plot_map(Specificity, .proj="moll", .points=TRUE))
 
 ggsave(file.path(output_dir, paste0(name, "-performance-map.png")), perf_map)
+
+test_preds |>
+  filter(cv == "Random CV", obs == "threatened") |>
+  inner_join(distributions, by="plant_name_id") |>
+  group_by(area_code_l3) |>
+  summarise(avg_size=log(median(L3_count, na.rm=T))) |>
+  plot_map(avg_size, .proj="moll", .points=TRUE)
+
+## richness map ----
+distributions |>
+  group_by(area_code_l3) |>
+  summarise(`Species richness`=n_distinct(plant_name_id)) |>
+  plot_map(`Species richness`, .proj="moll", .points=TRUE) +
+  scico::scale_fill_scico(
+    palette="bamako",
+    na.value="grey80",
+    name="Species richness",
+    direction=-1
+  ) +
+  scico::scale_colour_scico(
+    palette="bamako",
+    na.value="grey80",
+    name="Species richness",
+    direction=-1
+  )
+
+## assessments map ----
+distributions |>
+  filter(plant_name_id %in% predictions[!is.na(predictions$obs),]$plant_name_id) |>
+  group_by(area_code_l3) |>
+  summarise(`Species richness`=n_distinct(plant_name_id)) |>
+  plot_map(`Species richness`, .proj="moll", .points=TRUE) +
+  scico::scale_fill_scico(
+    palette="oslo",
+    na.value="grey80",
+    name="Assessed species",
+    direction=-1
+  ) +
+  scico::scale_colour_scico(
+    palette="oslo",
+    na.value="grey80",
+    name="Assessed species",
+    direction=-1
+  )
 
 # interpretation ----
 
@@ -197,14 +281,18 @@ ggsave(file.path(output_dir, paste0(name, "-performance-map.png")), perf_map)
 importance <- read_csv(file.path(model_dir, paste0(name, "-random-importance.csv")),
                        show_col_types=FALSE)
 
-importance_plot <-
-  importance |>
-  mutate(variable=reorder(variable, mean_decrease_accuracy)) |>
-  ggplot(mapping=aes(x=mean_decrease_accuracy, y=variable)) +
-  geom_boxplot() +
-  labs(x="Mean decrease in accuracy", y="")
+(importance_plot <- 
+    importance |>
+    group_by(variable) |>
+    median_qi(.width=c(0.69, 0.87, 0.95)) |>
+    mutate(variable=reorder(variable, mean_decrease_accuracy)) |>
+    ggplot(mapping=aes(x=mean_decrease_accuracy, y=variable, xmin=.lower, xmax=.upper)) +
+    geom_pointinterval(interval_colour="grey50") +
+    geom_vline(xintercept=0, linetype=2, size=1, color="red") +
+    labs(x="Mean decrease in accuracy", y=""))
 
-ggsave(file.path(output_dir, paste0(name, "-importance-plot.png")), importance_plot)
+ggsave(file.path(output_dir, paste0(name, "-importance-plot.png")), importance_plot,
+       height=10, width=6)
 
 # predictions ----
 # load posterior samples if they're there
@@ -297,8 +385,15 @@ if (".draw" %in% colnames(country_preds)) {
 
 (threat_map <- 
   country_preds |>
-  plot_map(threatened) +
+  plot_map(threatened, .proj="moll", .points=TRUE) +
   scico::scale_fill_scico(
+    palette="lajolla",
+    na.value="grey80",
+    limits=c(0, 1),
+    labels=scales::label_percent(),
+    name="Predicted threatened"
+  ) +
+  scico::scale_colour_scico(
     palette="lajolla",
     na.value="grey80",
     limits=c(0, 1),

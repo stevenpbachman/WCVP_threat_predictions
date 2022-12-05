@@ -125,22 +125,60 @@ plot_threat <- function(data, y_var) {
 #' @param data A data frame with some quantity for each of the WGSRPD3 level 3 regions.
 #' @param fill_var The column to colour the regions by.
 #'
-plot_map <- function(data, fill_var) {
-  filled_regions <- 
-    rWCVPdata::wgsrpd3 |>
-    left_join(data, by=c("LEVEL3_COD"="area_code_l3")) |>
-    st_wrap_dateline(options=c("WRAPDATELINE=YES", "DATELINEOFFSET=180")) |>
-    st_transform(st_crs("+proj=igh"))
+plot_map <- function(data, fill_var, .proj=c("moll", "igh"), .points=FALSE, .shapes=NULL) {
+  .proj <- match.arg(.proj)
   
-  ggplot() +
-    geom_sf(data=filled_regions, mapping=aes(fill={{ fill_var }}), colour="grey90", size=0.5/.pt) +
-    geom_sf(data=goode_outline(mask=TRUE), colour=NA, fill="#ffffff", size=0.5/.pt) +
-    geom_sf(data=goode_outline(), fill=NA, colour="grey50", size=0.5) +
+  if (is.null(.shapes)) {
+    filled_regions <- 
+      rWCVPdata::wgsprd3 |>
+      left_join(data, by=c("LEVEL3_COD"="area_code_l3"))
+  } else {
+    filled_regions <-
+      .shapes |>
+      left_join(data)
+  }
+  
+  
+  if (.proj == "goode") {
+    filled_regions <- 
+      filled_regions |>
+      st_wrap_dateline(options=c("WRAPDATELINE=YES", "DATELINEOFFSET=180")) |>
+      st_transform(st_crs("+proj=igh"))
+  } else {
+    filled_regions <- 
+      filled_regions |>
+      st_wrap_dateline(options=c("WRAPDATELINE=YES", "DATELINEOFFSET=180")) |>
+      st_transform(st_crs("+proj=moll"))
+  }
+    
+  
+  p <- ggplot() +
+    geom_sf(data=filled_regions, mapping=aes(fill={{ fill_var }}), colour="grey90", size=0.5/.pt)
+  
+  if (.points) {
+    p <-
+      p +
+      geom_sf(data=st_centroid(filled_regions), mapping=aes(colour={{ fill_var }}), show.legend=FALSE)
+  }
+  
+  if (.proj == "goode") {
+    p <- 
+      p +
+      geom_sf(data=goode_outline(mask=TRUE), colour=NA, fill="#ffffff", size=0.5/.pt) +
+      geom_sf(data=goode_outline(), fill=NA, colour="grey50", size=0.5) +
+      coord_sf(crs="+proj=igh")
+  } else {
+    p <- 
+      p + 
+      geom_sf(data=moll_outline(), fill=NA, colour="grey50", size=0.5) +
+      coord_sf(crs="+proj=moll")
+  }
+  p <- 
+    p +
     scico::scale_fill_scico(
       palette="batlowK",
       na.value="grey80"
     ) +
-    coord_sf(crs="+proj=igh") +
     guides(fill=
       guide_colourbar(
         direction="horizontal", 
@@ -150,7 +188,16 @@ plot_map <- function(data, fill_var) {
         barwidth=15,
         barheight=1
       )
-    ) +
+    ) 
+  if (.points) {
+    p <- 
+      p +
+      scico::scale_color_scico(
+        palette="batlowK",
+        na.value="grey80"
+      )
+  }
+  p +
     theme_map(legend.position="bottom")
 }
 
@@ -186,6 +233,28 @@ theme_map <- function(background_colour="#ffffff", grid_colour="#dbdbd9", ...) {
       plot.caption=element_text(size=7, hjust=0.5, margin=margin(t=0.2, b=0, unit="cm")),
       ...
     )
+}
+
+moll_outline <- function() {
+  lats <- c(
+    90:-90,
+    -90:90,
+    90
+  )
+  
+  longs <- c(
+    rep(180, 181),
+    rep(-180, 181),
+    180
+  )
+  outline <-
+    list(cbind(longs, lats)) %>%
+    sf::st_polygon() %>%
+    sf::st_sfc(
+      crs="+proj=longlat +ellps=WGS84 +no_defs"
+    )
+  
+  outline
 }
 
 #' a handy function for making an outline or mask of the goode map projection
