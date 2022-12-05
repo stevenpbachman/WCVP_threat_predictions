@@ -185,7 +185,8 @@ wf <-
   add_recipe(model_recipe)
 
 # tune hyperparameters if needed ----
-untuned_params <- length(extract_parameter_set_dials(wf)$name)
+model_params <- extract_parameter_set_dials(wf)
+untuned_params <- length(model_params$name)
   
 if (untuned_params > 0) {
   cli_alert_info("Tuning on inner resamples to find best hyperparameters")
@@ -195,16 +196,24 @@ if (untuned_params > 0) {
   } else {
     hparam_grid <- make_grid(labelled)
   }
+
+  if (is.null(hparam_grid) & "mtry" %in% model_params$name) {
+    npredictors <- sum(model_recipe$var_info$role == "predictor")
+    min_mtry <- ifelse(npredictors < 3, 1, 3)
+    model_params <- update(model_params, mtry=mtry(c(min_mtry, npredictors)))
+  }
   
   cli_alert_info("Evaluating hyperparameters on random folds")
   random_cv <- 
     random_cv |>
-    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, cluster=cluster)
+    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, 
+                         param_info=model_params, cluster=cluster)
   
   cli_alert_info("Evaluating hyperparameters on family folds")
   family_cv <- 
     family_cv |>
-    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, cluster=cluster)
+    tune_hyperparameters(wf, metrics=tune_metrics, grid=hparam_grid, 
+                         param_info=model_params, cluster=cluster)
   
 } else {
   cli_alert_info("No hyperparameters to tune, just evaluating on outer folds")
@@ -257,6 +266,7 @@ if (untuned_params > 0) {
     final_tune <- tune_bayes(
       final_wf,
       vfold_cv(labelled, v=5),
+      param_info=model_params,
       metrics=tune_metrics,
       initial=10,
       iter=20,
