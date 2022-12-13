@@ -27,18 +27,26 @@ plot_performance_bars <- function(data, y_var, fill_var=NULL, metric=NULL) {
   p <- ggplot(data, mapping=aes(x=.estimate, y=.data[[y_var]]))
   
   if (! is.null(fill_var)) {
-    p <- p + geom_col(mapping=aes(fill=.data[[fill_var]]), position=position_dodge())
+    p <- p + geom_linerange(mapping=aes(xmin=0, xmax=.estimate, group=.data[[fill_var]]), colour="grey80",
+                          position=position_dodge(width=0.75), size=1)
+    p <- p + geom_point(mapping=aes(colour=.data[[fill_var]]), position=position_dodge(width=0.75), size=3)
+    #p <- p + geom_col(mapping=aes(fill=.data[[fill_var]]), position=position_dodge(width=0.75), width=0.75)
   } else {
-    p <- p + geom_col(position=position_dodge())
+    p <- p + geom_point(position=position_dodge())
   }
   
   if ("n" %in% colnames(data)) {
-    p <- p + geom_text(mapping=aes(label=n, group=.data[[fill_var]]), hjust=-0.1, 
-                       position=position_dodge(width=1))
+    labels <- 
+      data |>
+      group_by(.data[[y_var]], n) |>
+      summarise(.estimate=max(.estimate, na.rm=TRUE), .groups="drop") |>
+      mutate(n=scales::label_comma()(n))
+      
+    p <- p + geom_text(data=labels, mapping=aes(label=n), hjust=-0.1, size=3, colour="grey50")
   }
     
   p <- p +
-    scale_x_continuous(limits=c(0, 1), expand=expansion(add=0.1)) +
+    scale_x_continuous(limits=c(0, 1), expand=expansion(add=c(0, 0.1))) +
     labs(x="", y="")
   
   if (is.null(metric)) {
@@ -58,19 +66,21 @@ plot_performance_bars <- function(data, y_var, fill_var=NULL, metric=NULL) {
 #' @param y_var The column to group the predictions by, which will form the items on
 #'  the y-axis of the plot.
 #'
-plot_threat <- function(data, y_var) {
-  is_samples <- ".draw" %in% colnames(data)
+plot_threat <- function(data, y_var, draws=NULL) {
+  is_samples <- ! is.null(draws)
+  is_conformal <- sum(str_detect(colnames(data), ".set_")) > 0
   
   if (is_samples) {
     dist <-
-      data |>
+      draws |>
+      left_join(
+        data |> select(plant_name_id, set, {{ y_var }}),
+        by=c("plant_name_id", "set")
+      ) |>
       group_by({{ y_var }}, .draw) |>
       summarise(threatened=mean(threatened),
                 .groups="drop") |>
       mutate({{ y_var }} := reorder({{ y_var }}, threatened))
-    data <-
-      data |>
-      filter(.draw == 1)
   } else {
     data <- 
       data |>
@@ -86,7 +96,7 @@ plot_threat <- function(data, y_var) {
     replace_na(list(threatened=0))
   
   if (is_samples) {
-    props <-
+    props <- 
       dist |>
       group_by({{ y_var }})
   } else {
@@ -95,30 +105,47 @@ plot_threat <- function(data, y_var) {
       group_by({{ y_var }})
   }
   
-  props <-
-    props |>
-    summarise(threatened=mean(threatened),
-              status="predicted",
-              .groups="drop") |>
-    bind_rows(obs) |>
-    pivot_wider(names_from=status, values_from=threatened) |>
-    mutate({{ y_var }} := reorder({{ y_var }}, predicted)) |>
-    pivot_longer(c(observed, predicted), names_to="status", values_to="threatened")
+  if (is_conformal) {
+    props <-
+      props |>
+      summarise(threatened=mean(threatened),
+                .lower=mean(.set_threatened),
+                .upper=mean(ifelse(`.set_not threatened`, FALSE, .set_threatened)),
+                status="predicted",
+                .groups="drop")
+  } else if (is_samples) { 
+    props <-
+      props |>
+      median_qi(threatened) |>
+      mutate(status="predicted")
+  } else {
+    props <-
+      props |>
+      summarise(threatened=mean(threatened),
+                status="predicted",
+                .groups="drop")
+  }
   
-  p <- ggplot(data=props, mapping=aes(y={{ y_var }}, x=threatened))
+  props <- mutate(props, {{ y_var }} := reorder({{ y_var }}, threatened))
+  y_levels <- levels(pull(props, {{ y_var }}))
+  obs <- mutate(obs, {{ y_var }} := factor({{ y_var }}, levels=y_levels))
+    
+  p <- ggplot(data=props, mapping=aes(y={{ y_var }}, x=threatened)) +
+    geom_col(data=obs, mapping=aes(fill=status))
   
-  if (is_samples) {
-    p <- p + stat_gradientinterval(data=dist, point_interval="mean_qi", fill_type="segments")
+  if (is_conformal | is_samples) {
+    p <- p + geom_pointinterval(mapping=aes(xmin=.lower, xmax=.upper, colour=threatened),
+                                show.legend=FALSE)
   } else {
     p <- p + geom_line(mapping=aes(group={{ y_var }}), size=2, colour="grey80")
   }
   
   p +
-    geom_point(mapping=aes(colour=status), size=3) +
     scale_x_continuous(limits=c(0, 1), labels=scales::label_percent()) +
-    scale_colour_manual(values=c("observed"="red", "predicted"="black"), name="") +
+    scale_fill_manual(values=c("observed"="grey80", "predicted"="black"), name="") +
     labs(x="Threatened plant species", y="")
 }
+
 
 #' Plot a choropleth map, where the WGSRPD level 3 regions are coloured by some quantity.
 #'
@@ -156,9 +183,21 @@ plot_map <- function(data, fill_var, .proj=c("moll", "igh"), .points=FALSE, .sha
     geom_sf(data=filled_regions, mapping=aes(fill={{ fill_var }}), colour="grey90", size=0.5/.pt)
   
   if (.points) {
+    points_sf <- 
+      filled_regions |>
+      st_make_valid() |>
+      mutate(island=sapply(st_intersects(filled_regions, filled_regions), function(x) (length(x) == 1)),
+             area=st_area(geometry)) |>
+      filter(island, area <= units::set_units(2e10, "m^2")) |>
+      st_centroid()
+    
+    # ALU is split at dateline, so need to shift centroid
+    points_sf[points_sf$LEVEL3_COD == "ALU",]$geometry <- points_sf[points_sf$LEVEL3_COD == "ALU",]$geometry - c(60, 0)
+    
     p <-
       p +
-      geom_sf(data=st_centroid(filled_regions), mapping=aes(colour={{ fill_var }}), show.legend=FALSE)
+      geom_sf(data=points_sf, mapping=aes(colour={{ fill_var }}), 
+              show.legend=FALSE, size=.pt / 6)
   }
   
   if (.proj == "goode") {
