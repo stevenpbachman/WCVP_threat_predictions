@@ -11,5 +11,7 @@
 *.zip
 *.Rmd
 *.csv
+*.docx
+*.qmd
 data/
 output/
