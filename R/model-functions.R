@@ -164,6 +164,35 @@ permutation_importance <- function(object, split, .threshold=0.5) {
   )
 }
 
+permutation_importance_ <- function(fit_obj, test_set, .threshold=0.5, parallel=FALSE) {
+  if ("bart" %in% class(fit_obj)) {
+    fcn <- function(object, newdata) {
+      p <- colMeans(predict(object, newdata))
+      ifelse(p > .threshold, "threatened", "not threatened")
+    }
+  } else if (length(levels(test_set$obs)) == 2) {
+    fcn <- function(object, newdata) {
+      p <- predict(object, newdata, type="prob")
+      ifelse(p > .threshold, "threatened", "not threatened")
+    }
+  } else {
+    fcn <- function(object, newdata) {
+      p <- predict(object, newdata)
+      p$.pred_class
+    }
+  }
+
+  vip::vi_permute(
+    fit_obj,
+    train=test_set,
+    target="obs",
+    metric="accuracy",
+    pred_wrapper=fcn,
+    nsim=50,
+    parallel=parallel
+  )
+}
+
 #' Fit and evaluate a model with additional threshold tuning.
 #' 
 #' Fits the model on the training set of a single CV fold, picks the classification

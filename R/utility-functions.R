@@ -59,3 +59,49 @@ disaggregate_performance <- function(d, ..., metrics=NULL) {
     metrics(truth=obs, estimate=.pred_class, event_level="second") |>
     left_join(n, by=join_keys)
 }
+
+#' Extract observation ids for training and test sets of a cross-validation fold.
+#'
+#' @param split an `rsample::rsplit` object for one cross-validation fold.
+#'
+#' @return a list with the plant_name_id for species in each set.
+#'
+get_fold_ids_ <- function(split) {
+  train <- analysis(split)
+  test <- assessment(split)
+
+  list(
+    train=train$plant_name_id,
+    test=test$plant_name_id
+  )
+}
+
+#' Extract observation ids for the training and test sets of all folds in a CV scheme.
+#'
+#' @param splits an `rsample::rset` object for a cross-validation scheme.
+#'
+#' @return a list with a list for each fold with the plant_name_id for species in the train and test sets.
+#'
+get_cv_ids <- function(splits) {
+  ids <- lapply(splits$splits, get_fold_ids_)
+  for (i in seq_along(splits$id)) {
+    ids[[i]][["name"]] <- splits$id[[i]]
+  }
+
+  ids
+}
+
+#' Insert a key-value pair in every list in a list of named lists.
+#'
+#' @param lists a list of named lists.
+#' @param items a named list of items to insert into every named list in `lists`.
+#'
+#' @ return a list of named lists.
+#'
+insert_items <- function(lists, items) {
+  for (i in seq_along(lists)) {
+    lists[[i]] <- c(lists[[i]], items)
+  }
+
+  lists
+}

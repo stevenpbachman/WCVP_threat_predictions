@@ -3,13 +3,17 @@
 
 
 #' EXPECTED INPUTS:
-#' 
+#'  - `method`: the name of a modelling method to use, e.g `bart`
+#'  - `output_dir`: path to a directory to save outputs to
+#'  - `model_dir`: path to a directory to save trained models to
+#'  - `method_dir`: path to a directory containing scripts that specify each method
+#'  - `predictor_file`: path to a file containing predictors calculated for a set of species 
+#'
 #' EXAMPLE CLI:
-#'  Rscript 03_analysis_scripts/train-model.R --predictor_file=01_raw_data/angio_pred_v1.csv --method=bart
+#'  Rscript 03_analysis_scripts/setup-model.R --predictor_file=01_raw_data/angio_pred_v1.csv --method=bart
 #' 
 #' EXAMPLE SOURCE:
 #'  output_dir <- "output"
-#'  model_dir <- "output"
 #'  method_dir <- "04_model_definitions"
 #'  predictor_file <- "01_raw_data/angio_pred_v1.csv"
 #'  random_seed <- 1989
@@ -20,16 +24,11 @@
 
 # libraries ----
 shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
-shhlibrary(dbarts)      # for a bart model if needed
 shhlibrary(tidyverse)   # packages for data handling
 shhlibrary(tidymodels)  # packages for model training and evaluation
-shhlibrary(ROCR)        # evaluate classification thresholds
-shhlibrary(multidplyr)  # run operations on chunks of a data frame in parallel
-shhlibrary(doParallel)  # set up parallel processing
-shhlibrary(git2r)       # run git commands in R
 shhlibrary(cli)         # nice formatting for CLI
 
-
+source("R/utility-functions.R")
 # CLI ----
 cli_h1("Setting up an extinction prediction model training run")
 
@@ -47,6 +46,7 @@ if (sys.nframe() == 0L) {
   
   method <- args$method
   predictor_file <- args$predictor_file
+  target <- args$target
   
   random_seed <- args$random_seed
   force_commits <- args$force_commits
@@ -92,19 +92,39 @@ if (! method %in% available_methods) {
   ))
 }
 
-source(file.path(method_dir, paste0(method, ".R")))
+if (! target %in% c("threat_status", "category")) {
+  cli_abort(c(
+    "unrecognised target",
+    x="Possible targets are the full IUCN RL category ({.val category}) or the threat status ({.val threat_status})"
+  ))
+}
 
-dir.create(output_dir, showWarnings=FALSE)
+source(file.path(method_dir, paste0(method, ".R")))
 
 warn_uncommitted(.stop=force_commits)
 
-latest_hash <- revparse_single(".", "HEAD")$sha
+latest_hash <- system2("git", args=c("rev-list", "--max-count=1", "--abbrev-commit", "--skip=#", "HEAD"),
+                       stdout=TRUE)
 now <- format(Sys.time(), "%Y%m%d-%H%M%S")
-name <- paste(method, latest_hash, now, sep="-")
+
+output_dir <- file.path(output_dir, method, latest_hash, now)
+dir.create(output_dir, showWarnings=FALSE, recursive=TRUE)
 
 cli_alert_info("Setting up a {.strong {method}} model using {.file {predictor_file}}")
 cli_alert_info("Saving run config to {.file {output_dir}}")
 
+# set up run metadata ----
+run_meta <- list(
+  commit=paste0("https://github.com/stevenpbachman/WCVP_threat_predictions/commit/", latest_hash),
+  date=Sys.time(),
+  state="initialised",
+  model=method,
+  target=target,
+  seed=random_seed,
+  predictors=predictor_file
+)
+
+write(jsonlite::toJSON(run_meta, auto_unbox=TRUE), file.path(output_dir, "run-metadata.json"))
 # load predictors ----
 predictors <- read_csv(predictor_file, show_col_types=FALSE, progress=FALSE)
 
@@ -123,11 +143,13 @@ unlabelled <- filter(predictors, is.na(category) | category == "DD")
 if (target == "threat_status") {
   labelled$obs <- ifelse(labelled$category %in% c("LC", "NT"), "not threatened", "threatened")
   labelled$obs <- factor(labelled$obs, levels=c("not threatened", "threatened"))  
-} else if (target == "categories") {
-  labelled$obs <- factor(labelled$categories, levels=c("LC", "NT", "VU", "EN", "CR"))
+} else if (target == "category") {
+  labelled$obs <- factor(labelled$category, levels=c("LC", "NT", "VU", "EN", "CR"))
 }
 
 unlabelled$obs <- factor(NA, levels=levels(labelled$obs))
+write_rds(labelled, file.path(output_dir, "features-labelled.rds"))
+write_rds(unlabelled, file.path(output_dir, "features-unlabelled.rds"))
 
 cli_alert_info("Evaluating the method on {.strong {nrow(labelled)}} examples:")
 
@@ -145,34 +167,42 @@ random_cv <- nested_cv(labelled, inside=vfold_cv(v=3), outside=vfold_cv(v=5))
 family_cv <- nested_cv(labelled, inside=vfold_cv(v=3), 
                        outside=group_vfold_cv(group=family, v=5))
 
-# define evaluation metrics ----
-# hyperparameter tuning (inner folds)
-tune_metrics <- metric_set(roc_auc, mn_log_loss)
+final_cv <- vfold_cv(labelled, v=5)
 
-# model evaluation (outer folds)
-eval_metrics <- metric_set(accuracy, sensitivity, specificity, j_index)
+# save evaluation cv scheme ----
+random_eval <- insert_items(get_cv_ids(random_cv), list("type"="random"))
+family_eval <- insert_items(get_cv_ids(family_cv), list("type"="family"))
+eval_scheme <- c(random_eval, family_eval)
+write(jsonlite::toJSON(as.list(eval_scheme), auto_unbox=TRUE), file.path(output_dir, "eval-scheme.json"))
 
-# set up cluster ----
-ncores <- parallelly::availableCores()
-cli_alert_info("Using {.strong {ncores}} cores")
+# save tune cv scheme ----
+# need to expand tuning scheme so each hyperparameter is evaluated on each fold
+if (exists("hparam_grid")) {
+  random_tune_ids <- map2(random_cv$inner_resamples, random_cv$id, ~insert_items(get_cv_ids(.x), list("outer"=.y)))
+  random_tune_ids <- do.call(c, random_tune_ids)
+  random_tune_ids <- insert_items(random_tune_ids, list("type"="random"))
+  
+  family_tune_ids <- map2(family_cv$inner_resamples, family_cv$id, ~insert_items(get_cv_ids(.x), list("outer"=.y)))
+  family_tune_ids <- do.call(c, family_tune_ids)
+  family_tune_ids <- insert_items(family_tune_ids, list("type"="family"))
 
-# this sets up a cluster for mapping chunks of data frames (model evaluation)
-if (parallel) {
-  cluster <- new_cluster(ncores)
-  cluster_library(cluster, packages=c("dplyr", "dbarts", "tidymodels", "ROCR", "vip"))
-} else {
-  cluster <- NULL
+  hparams <- jsonlite::toJSON(hparam_grid)
+  hparam_list <- jsonlite::fromJSON(hparams, simplifyDataFrame=FALSE)
+  hparam_random_cv <- do.call(c, lapply(hparam_list, function(x) insert_items(random_tune_ids, list("hparams"=x))))
+  hparam_family_cv <- do.call(c, lapply(hparam_list, function(x) insert_items(family_tune_ids, list("hparams"=x))))
+  
+  tune_scheme <- c(hparam_random_cv, hparam_family_cv)
+  write(jsonlite::toJSON(tune_scheme, auto_unbox=TRUE), file.path(output_dir, "tune-scheme.json"))
 }
 
-# set up model ----
-model_spec <- specify_model()
-model_recipe <- specify_recipe(labelled)
+# save final cv scheme ----
+# only need this if there are hyperparameters to tune
+if (exists("hparam_grid")) {
+  final_tune_ids <- insert_items(get_cv_ids(final_cv), list("type"="random"))
 
-wf <- 
-  workflow() |>
-  add_model(model_spec) |>
-  add_recipe(model_recipe)
-
-# tune hyperparameters if needed ----
-model_params <- extract_parameter_set_dials(wf)
-untuned_params <- length(model_params$name)
+  hparams <- jsonlite::toJSON(hparam_grid)
+  hparam_list <- jsonlite::fromJSON(hparams, simplifyDataFrame=FALSE)
+  final_tune_scheme <- do.call(c, lapply(hparam_list, function(x) insert_items(final_tune_ids, list("hparams"=x))))
+  
+  write(jsonlite::toJSON(final_tune_scheme, auto_unbox=TRUE), file.path(output_dir, "final-scheme.json"))
+}
