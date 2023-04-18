@@ -1,5 +1,5 @@
 # MODEL SPECIFICATION ----
-specify_model <- function() {
+specify_model <- function(...) {
   rand_forest(
     trees=1000,
     mtry=tune(),

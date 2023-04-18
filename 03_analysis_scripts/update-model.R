@@ -117,15 +117,18 @@ if (metadata$state == "initialised" & file.exists(file.path(output_dir, "tune-sc
     map_dfr(tune_scheme, ~as_tibble(.x[c("type", "outer", "name")])),
     map_dfr(tune_scheme, ~as_tibble(.x$hparams))
   )
+
+  hparam_names <- names(tune_scheme[[1]]$hparams)
   tune_info$run_id <- seq(from=1, to=length(tune_scheme))
   
   tune_results <- 
     tune_results |>
     left_join(tune_info, by="run_id", relationship="many-to-one")
 
+  summary_cols <- c("type", "outer", ".metric", ".estimator", hparam_names)
   tune_summary <-
       tune_results |>
-      group_by(type, outer, .metric, .estimator, mtry, min_n) |>
+      group_by(across(all_of(summary_cols))) |>
       summarise(
         mean=mean(.estimate, na.rm=TRUE),
         n=n(),
@@ -201,32 +204,35 @@ if (metadata$state == "initialised" & file.exists(file.path(output_dir, "tune-sc
     select(-fname)
 
   final_info <- bind_cols(
-    map_dfr(final_scheme, ~as_tibble(.x[c("type", "outer", "name")])),
+    map_dfr(final_scheme, ~as_tibble(.x[c("type", "name")])),
     map_dfr(final_scheme, ~as_tibble(.x$hparams))
   )
   final_info$run_id <- seq(from=1, to=length(final_scheme))
+
+  hparam_names <- names(tune_scheme[[1]]$hparams)
   
   final_results <- 
     final_results |>
     left_join(final_info, by="run_id", relationship="many-to-one")
 
+  summary_cols <- c("type", "outer", ".metric", ".estimator", hparam_names)
   final_summary <-
-      final_results |>
-      group_by(.metric, .estimator, mtry, min_n) |>
-      summarise(
-        mean=mean(.estimate, na.rm=TRUE),
-        n=n(),
-        std_err=sd(.estimate, na.rm=TRUE) / sqrt(n),
-        .groups="drop"
-      )
+    final_results |>
+    group_by(across(all_of(hparam_names))) |>
+    summarise(
+      mean=mean(.estimate, na.rm=TRUE),
+      n=n(),
+      std_err=sd(.estimate, na.rm=TRUE) / sqrt(n),
+      .groups="drop"
+    )
 
   final_hparams <- 
     final_summary |>
     filter(.metric == "roc_auc") |>
-    group_by(type, outer) |>
+    group_by(type) |>
     slice_max(mean, n=1) |>
     ungroup() |>
-    select(-.metric, -.estimator, -n, -mean, -std_err) |>
+    select(-type, -.metric, -.estimator, -n, -mean, -std_err) |>
     as.list()
 
   updated_metadata$hparams <- final_hparams

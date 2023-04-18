@@ -65,11 +65,13 @@ if (sys.nframe() == 0L) {
   method_dir <- args$method_dir
 }
 
-if (! exists("run_idx", mode="numeric")) {
+if (! exists("run_idx", mode="numeric") & mode != "prod") {
   cli_abort(
     "no run index specified",
     x="You must specify which index of the run config to use to set up the model."
   )
+} else if (! exists("run_idx", mode="numeric") & mode == "prod") {
+  run_idx <- 1
 }
 
 if (! exists("random_seed")) {
@@ -165,7 +167,7 @@ if (metadata$state == "finalised") {
 }
 
 ## model setup ----
-model <- specify_model()
+model <- specify_model(target=metadata$target)
 model <- finalize_model(model, hparams)
 
 ## preprocess data ----
@@ -205,7 +207,7 @@ if (mode %in% c("tune", "final")) {
 if (metadata$target == "category" & mode != "prod") {
   performance <- metrics(test_preds, truth=obs, estimate=.pred_class, .pred_LC:.pred_CR)
 } else if (mode != "prod") {
-  performance <- metrics(test_preds, truth=obs, estimate=.pred_class, event_level="second")
+  performance <- metrics(test_preds, truth=obs, estimate=.pred_class, .pred_threatened, event_level="second")
 }
 
 ## generate outputs ----
@@ -226,13 +228,39 @@ if (mode == "eval") {
   write_csv(test_preds, file.path(output_dir, "results", paste0("final-predictions.csv")))
 }
 
+if (mode == "prod" & method == "bart") {
+  ev_samples <- 
+    extract_samples(model_fit, newdata=train_input, type="ev", ids=train$plant_name_id) |>
+    mutate(set="labelled") |>
+    bind_rows(
+      extract_samples(model_fit, newdata=test_input, type="ev", ids=test$plant_name_id) |>
+      mutate(set="unlabelled") 
+    )
+
+  ppd_samples <- 
+    extract_samples(model_fit, newdata=train_input, type="ppd", ids=train$plant_name_id) |>
+    mutate(set="labelled") |>
+    bind_rows(
+      extract_samples(model_fit, newdata=test_input, type="ppd", ids=test$plant_name_id) |>
+      mutate(set="unlabelled") 
+    )
+  
+  write_csv(ppd_samples, file.path(output_dir, paste0(name, "-ppd-samples.csv")))
+  write_csv(ev_samples, file.path(output_dir, paste0(name, "-ev-samples.csv")))
+}
+
 ### feature importance ----
 if (mode == "eval") {
-  importance <- permutation_importance_(model_fit, test_input, parallel=TRUE)
+  importance <- permutation_importance_(model_fit, test_input, parallel=TRUE, .n=5)
   write_csv(importance, file.path(output_dir, "results", paste0(mode, "_idx-", run_idx, "_importance.csv")))
 }
 
 ### save model ----
+if (method == "bart" & mode == "prod") {
+  # have to 'touch' the trees to be able to save them for predictions
+  invisible(model_fit$fit$fit$state)
+}
+
 if (mode == "prod") {
   write_rds(model_fit, file.path(output_dir, "model", paste0(paste(method, commit, date, sep="-"), ".rds")))
   write_rds(preproc, file.path(output_dir, "model", paste0(paste("preprocessor", method, commit, date, sep="-"), ".rds")))
