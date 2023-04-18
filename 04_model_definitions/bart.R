@@ -1,13 +1,20 @@
 # MODEL SPECIFICATION ----
-specify_model <- function() {
-  bart(
+specify_model <- function(target="threat_status") {
+  m <- bart(
     trees=tune(),
     prior_terminal_node_coef=tune(),
     prior_terminal_node_expo=tune(),
     prior_outcome_range=tune()
   ) |>
-    set_mode("classification") |>
-    set_engine("dbarts")
+    set_mode("classification")
+
+  if (target == "threat_status") {
+    m <- set_engine("dbarts")
+  } else {
+    m <- set_engine(m, "mbart", sparse=TRUE)
+  }
+
+  m
 }
 
 # PRE-PROCESSING SPECIFICATION ----
@@ -59,3 +66,9 @@ specify_recipe <- function(data, ...) {
 }
 
 # HYPERPARAMETERS ----
+hparam_grid <- grid_latin_hypercube(
+  trees(),
+  prior_terminal_node_coef(),
+  prior_terminal_node_expo(),
+  prior_outcome_range()
+)
