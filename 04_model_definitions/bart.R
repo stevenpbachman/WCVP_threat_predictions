@@ -9,7 +9,7 @@ specify_model <- function(target="threat_status") {
     set_mode("classification")
 
   if (target == "threat_status") {
-    m <- set_engine("dbarts")
+    m <- set_engine(m, "dbarts")
   } else {
     m <- set_engine(m, "mbart", sparse=TRUE)
   }

@@ -53,9 +53,9 @@ set_encoding(
   eng="mbart",
   mode="classification",
   options=list(
-    predictor_indicators="none",
+    predictor_indicators="one_hot",
     compute_intercept=FALSE,
-    remove_intercept=FALSE,
+    remove_intercept=TRUE,
     allow_sparse_x=FALSE
   )
 )
@@ -90,6 +90,40 @@ set_pred(
       obj=quote(object),
       new_data=quote(new_data),
       type="prob"
+    )
+  )
+)
+
+set_pred(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  type="raw",
+  value=list(
+    pre=NULL,
+    post=NULL,
+    func=c(fun="mbart_predict_calc"),
+    args=list(
+      obj=quote(object),
+      new_data=quote(new_data),
+      type="ev"
+    )
+  )
+)
+
+set_pred(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  type="numeric",
+  value=list(
+    pre=NULL,
+    post=NULL,
+    func=c(fun="mbart_predict_calc"),
+    args=list(
+      obj=quote(object),
+      new_data=quote(new_data),
+      type="ppd"
     )
   )
 )
@@ -172,33 +206,19 @@ dbart_samples <- function(obj, newdata, type="ev", ids=NULL) {
 }
 
 mbart_samples <- function(obj, newdata, type="ev", ids=NULL) {
-  fit_obj <- extract_fit_engine(obj)
-
-  pred <- predict(fit_obj, as.data.frame(as.data.frame(newdata)))
-  probs_tbl <- 
-    pred$prob.test |>
-    t() |>
-    as_tibble()
-
-  idx <- ceiling(seq(1, nrow(probs_tbl)) / length(obj$lvl))
-  res <- split(probs_tbl, idx)
-
-  if (type == "ppd") {
-    res <- lapply(
-      res,
-      function(x) lapply(x, function(xi) obj$lvl[which.max(rmultinom(1, 1, xi))])
-    )
-
-    res <- lapply(res, as_tibble)
+  if (type == "ev") {
+    type <- "raw"
   } else {
-    res <- lapply(res, function(x) mutate(x, .cls=obj$lvl))
+    type <- "pred_int"
   }
+  samples <- predict(obj, newdata=newdata, type=type)
 
   if (! is.null(ids)) {
-    res <- purrr::map2(res, ids, ~mutate(.x, .id=.y))
+    id_vec <- ids[samples$.id]
+    samples$.id <- id_vec
   }
 
-  bind_rows(res)
+  samples
 }
 
 mbart_train <- function(x, y, ntree=50, k=2, power=2, base=0.95, sparse=FALSE, printevery=100000L) {
@@ -208,9 +228,10 @@ mbart_train <- function(x, y, ntree=50, k=2, power=2, base=0.95, sparse=FALSE, p
 }
 
 mbart_predict_calc <- function(obj, new_data, type) {
-  types <- c("prob", "class")
-
+  types <- c("prob", "class", "ev", "ppd")
+  
   mbart_obj <- extract_fit_engine(obj)
+  
   preds <- predict(mbart_obj, as.data.frame(new_data))
   mn <- preds$prob.test.mean
   
@@ -221,11 +242,33 @@ mbart_predict_calc <- function(obj, new_data, type) {
     res <- do.call(rbind, probs)
     res <- as_tibble(res)
     colnames(res) <- paste0(".pred_", obj$lvl)
-  } else {
+  } else if (type == "class") {
     lvl_idx <- sapply(probs, which.max)
     lvl <- obj$lvl[lvl_idx]
     lvl <- factor(lvl, levels=obj$lvl)
     res <- tibble(.pred_class=lvl)
+  } else {
+    probs_tbl <- 
+    preds$prob.test |>
+    t() |>
+    as_tibble()
+
+    res <- split(probs_tbl, idx)
+
+    if (type == "ppd") {
+      res <- lapply(
+        res,
+        function(x) lapply(x, function(xi) obj$lvl[which.max(rmultinom(1, 1, xi))])
+      )
+
+      res <- lapply(res, as_tibble)
+    } else {
+      res <- lapply(res, function(x) mutate(x, .cls=obj$lvl))
+    }
+
+    res <- purrr::map2(res, seq(1, max(idx)), ~mutate(.x, .id=.y))
+    
+    bind_rows(res)
   }
   
   res

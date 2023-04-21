@@ -166,6 +166,9 @@ if (metadata$state == "finalised") {
   hparams <- cv_split$hparams
 }
 
+threshold <- hparams$threshold
+hparams$threshold <- NULL
+
 ## model setup ----
 model <- specify_model(target=metadata$target)
 model <- finalize_model(model, hparams)
@@ -186,13 +189,15 @@ model_fit <- fit(model, obs ~., data=train_input)
 
 ## predict on test set ----
 test_preds <- augment(model_fit, new_data=test_input)
-if (is.null(threshold) & metadata$target == "threat_status") {
+if (is.null(threshold) & metadata$target == "threat_status" & mode %in% c("tune", "final")) {
   threshold <- choose_threshold(test_preds$.pred_threatened, test_preds$obs)
+  threshold <- threshold$best
+} else if (is.null(threshold) & metadata$target == "threat_status") {
+  threshold <- 0.5
 }
 
 if (metadata$target == "threat_status") {
-  test_preds$.pred_class <- ifelse(test_preds$.pred_threatened > threshold$best, 
-                                   "threatened", "not threatened")
+  test_preds$.pred_class <- ifelse(test_preds$.pred_threatened > threshold, "threatened", "not threatened")
 
   test_preds$.pred_class <- factor(test_preds$.pred_class, levels=levels(test_preds$obs))
 }
@@ -208,6 +213,10 @@ if (metadata$target == "category" & mode != "prod") {
   performance <- metrics(test_preds, truth=obs, estimate=.pred_class, .pred_LC:.pred_CR)
 } else if (mode != "prod") {
   performance <- metrics(test_preds, truth=obs, estimate=.pred_class, .pred_threatened, event_level="second")
+}
+
+if (metadata$target == "threat_status" & mode %in% c("tune", "final")) {
+  performance$threshold <- threshold
 }
 
 ## generate outputs ----

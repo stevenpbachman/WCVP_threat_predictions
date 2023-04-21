@@ -209,13 +209,16 @@ if (metadata$state == "initialised" & file.exists(file.path(output_dir, "tune-sc
   )
   final_info$run_id <- seq(from=1, to=length(final_scheme))
 
-  hparam_names <- names(tune_scheme[[1]]$hparams)
+  hparam_names <- names(final_scheme[[1]]$hparams)
   
   final_results <- 
     final_results |>
     left_join(final_info, by="run_id", relationship="many-to-one")
 
-  summary_cols <- c("type", "outer", ".metric", ".estimator", hparam_names)
+  if ("threshold" %in% colnames(final_results)) {
+    hparam_names <- c(hparam_names, "threshold")
+  }
+
   final_summary <-
     final_results |>
     group_by(across(all_of(hparam_names))) |>
@@ -225,21 +228,30 @@ if (metadata$state == "initialised" & file.exists(file.path(output_dir, "tune-sc
       std_err=sd(.estimate, na.rm=TRUE) / sqrt(n),
       .groups="drop"
     )
+  
+  write_csv(final_summary, file.path(output_dir, "final-tuning-summary.csv"))
 
-  final_hparams <- 
+  if (".metric" %in% colnames(final_summary)) {
+    final_hparams <- 
+      final_summary |>
+      filter(.metric == "roc_auc") |>
+      group_by(type) |>
+      slice_max(mean, n=1) |>
+      ungroup() |>
+      select(-type, -.metric, -.estimator, -n, -mean, -std_err) |>
+      as.list()
+  } else {
+    final_hparams <- 
     final_summary |>
-    filter(.metric == "roc_auc") |>
-    group_by(type) |>
     slice_max(mean, n=1) |>
-    ungroup() |>
-    select(-type, -.metric, -.estimator, -n, -mean, -std_err) |>
+    select(-n, -mean, -std_err) |>
     as.list()
+  }
 
   updated_metadata$hparams <- final_hparams
   updated_metadata$state <- "finalised"
 
   write(jsonlite::toJSON(updated_metadata, auto_unbox=TRUE), file.path(output_dir, "run-metadata.json"))
-  write_csv(final_summary, file.path(output_dir, "final-tuning-summary.csv"))
 } else if (metadata$state == "finalised") {
   updated_metadata$state <- "done"
   updated_metadata$final_model <- paste0(paste(method, commit, date, sep="-"), ".rds")
