@@ -50,9 +50,13 @@ apg_families <-
   select("higher_groups"="HigherGroups", "order"="APG IV Order",
          "family"="APG IV Family")
 
-redlist <- read_csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv")
+redlist <- read_csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv") |>
+  add_count(accepted_plant_name_id) |>
+  filter(n == 1 | scientific_name == match_name & match_status == "Accepted") |>
+  select(-n)
 
-wcvp_YoD <- read_csv("01_raw_data/wcvp_YoD")
+wcvp_YoD <- read_csv("01_raw_data/wcvp_YoD.csv") |>
+  distinct(plant_name_id, year)
 
 # generate species list ----
 # filter on the accepted names only
@@ -64,7 +68,7 @@ species_list <-
          is.na(genus_hybrid),
          is.na(species_hybrid)) |>
   select(plant_name_id, taxon_name, family, genus, lifeform_description, climate_description) |>
-  left_join(apg_families, by="family")
+  left_join(apg_families, by="family", relationship="many-to-one")
 
 # get total number of accepted angiosperms
 species_list <- filter(species_list, !is.na(higher_groups))
@@ -86,7 +90,7 @@ species_list |>
 life_form_mapping <-  read_csv("01_raw_data/life_form_mapping.csv")
 
 # join mapping to wcvp_thin
-predictors <- left_join(species_list, life_form_mapping, by="lifeform_description")
+predictors <- left_join(species_list, life_form_mapping, by="lifeform_description", relationship="many-to-one")
 
 # count regions per species ----
 
@@ -98,7 +102,7 @@ region_counts <-
     L3_count=n_distinct(area_code_l3)
   )
 
-predictors <- inner_join(predictors, region_counts, by="plant_name_id")
+predictors <- inner_join(predictors, region_counts, by="plant_name_id", relationship="one-to-one")
 
 # join phylovectors ----
 
@@ -106,7 +110,8 @@ predictors <-
   predictors |>
   left_join(
     phylo_vectors,
-    by="genus"
+    by="genus",
+    relationship="many-to-one"
   )
 
 # join tdwg-based predictors ----
@@ -115,7 +120,8 @@ predictors <-
   predictors |>
   left_join(
     tdwg_vars,
-    by=c("plant_name_id", "taxon_name")
+    by=c("plant_name_id", "taxon_name"),
+    relationship="one-to-one"
   )
 
 # link RL assessments ----
@@ -123,15 +129,17 @@ predictors <-
   predictors |>
   left_join(
     redlist |> select(category, accepted_plant_name_id), 
-    by=c("plant_name_id"="accepted_plant_name_id")
+    by=c("plant_name_id"="accepted_plant_name_id"),
+    relationship="one-to-one"
   )
 
 # link year of description ----
 predictors <- 
   predictors |>
   left_join(
-    wcvp_YoD |> select(year, plant_name_id), 
-    by="plant_name_id"
+    wcvp_YoD |> select(plant_name_id, year), 
+    by="plant_name_id",
+    relationship="one-to-one"
   )
 
 # check missing values again ----

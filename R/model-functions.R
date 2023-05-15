@@ -1,195 +1,160 @@
 #' Functions to help train and evaluate the model
 
-#' Tune the hyperparameters of a model across nested CV folds.
-#' 
-#' @param splits an `rsample` object holding nested CV folds
-#' @param wf an unfinalised `workflow` object with parameters to tune
-#' @param grid a data frame specifying parameter values to try
-#' @param metrics a metric or set of metrics from to evaluate parameter values
-#' @param cluster a cluster to carry out parallel processing using `multidplyr`
-#'  
-#' @return the original `rsample` object modified with finalised workflows using the
-#'  best parameter values from each split
-#'  
-tune_hyperparameters <- function(splits, wf, metrics, grid=NULL, param_info=NULL, cluster=NULL) {
-  if (! is.null(cluster)) {
-    cluster_assign(
-      cluster,
-      grid=grid,
-      wf=wf,
-      param_info=param_info,
-      metrics=metrics,
-      #functions
-      tune_over_folds=tune_over_folds
-    )
-  }
-  results <- 
-    splits |>
-    rowwise() 
-  if (! is.null(cluster)) {
-    results <- partition(results, cluster)
-  }
-  
-  results <- 
-    results |>
-    mutate(tuning=list(tune_over_folds(inner_resamples, wf, metrics, grid=grid, param_info=param_info)))
-  
-  if (! is.null(cluster)) {
-    results <- collect(results)
-  }
-  
-  results |>
-    rowwise() |>
-    mutate(best=list(select_best(tuning, metric="roc_auc"))) |>
-    mutate(.workflow=list(finalize_workflow(wf, best))) |>
-    select(-tuning) |>
-    unnest(cols=c(best))
-}
+set_model_engine("bart", "classification", eng="mbart")
+set_dependency("bart", eng="mbart", pkg="BART")
 
-#' Evaluate the performance of a workflow for different hyperparameter values.
-#' 
-#' @param folds an `rsplit` object.
-#' @param wf an unfinalised `workflow` object with parameters to tune
-#' @param grid a data frame specifying parameter values to try
-#' @param metrics a metric or set of metrics from to evaluate parameter values
-#' 
-#' @return An updated version of the `folds` object with extra columns for the 
-#'  tuning results.
-#'
-tune_over_folds <- function(folds, wf, metrics, grid=NULL, param_info=NULL) {
-  if (!is.null(grid)) {
-    control <- control_grid(event_level="second")
-  } else {
-    control <- control_bayes(no_improve=10, event_level="second")
-  }
-  
-  if (!is.null(grid)) {
-    tune_grid(
-      wf, 
-      folds, 
-      grid=grid, 
-      metrics=metrics,
-      control=control
-    )
-  } else {
-    tune_bayes(
-      wf,
-      folds,
-      initial=10,
-      iter=20,
-      param_info=param_info,
-      metrics=metrics,
-      control=control
-    )
-  }
-  
-}
+set_model_arg(
+  model="bart",
+  eng="mbart",
+  parsnip="trees",
+  original="ntree",
+  func=list(pkg="dials", fun="trees", range=c(25, 250)),
+  has_submodel=FALSE
+)
+set_model_arg(
+  model="bart",
+  eng="mbart",
+  parsnip="prior_terminal_node_coef",
+  original="base",
+  func=list(pkg="dials", fun="prior_terminal_node_coef"),
+  has_submodel=FALSE
+)
+set_model_arg(
+  model="bart",
+  eng="mbart",
+  parsnip="prior_terminal_node_expo",
+  original="power",
+  func=list(pkg="dials", fun="prior_terminal_node_expo"),
+  has_submodel=FALSE
+)
+set_model_arg(
+  model="bart",
+  eng="mbart",
+  parsnip="prior_outcome_range",
+  original="k",
+  func=list(pkg="dials", fun="prior_outcome_range"),
+  has_submodel=FALSE
+)
 
-#' Fit and evaluate the performance of a model over cross-validation folds.
-#'
-#' @param splits an `rsample::rsets` object with a `.workflow` column
-#'  holding the finalised workflows. These will be the same if no hyperparameter
-#'  tuning on nested resamples has been performed.
-#' @param metrics a metric or set of metrics to measure the performance of the model.
-#' @param cluster a cluster to carry out parallel processing using `multidplyr`
-evaluate_model <- function(splits, metrics, cluster=NULL) {
-  if (! is.null(cluster)) {
-    cluster_assign(
-      cluster,
-      #functions
-      metrics=metrics,
-      last_fit_threshold=last_fit_threshold,
-      choose_threshold=choose_threshold,
-      permutation_importance=permutation_importance
-    )  
-  }
-  
-  results <-
-    splits |>
-    rowwise()
-  
-  if (! is.null(cluster)) {
-    results <- partition(results, cluster)
-  }
-  
-  results <- 
-    results |>
-    mutate(.fit=list(last_fit_threshold(.workflow, splits, metrics=metrics))) |>
-    mutate(.metrics=list(.fit$.metrics)) |>
-    mutate(.threshold=.fit$.threshold) |>
-    mutate(.preds=list(.fit$.predictions)) |>
-    mutate(.importance=list(permutation_importance(.fit$.fit, splits, .threshold=.fit$.threshold))) |>
-    select(-.fit)
-  
-  if (! is.null(cluster)) {
-    results <- collect(results)
-  }
-  
-  results
-}
+set_fit(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  value=list(
+    interface="data.frame",
+    protect=c("x", "y"),
+    func=c(fun="mbart_train"),
+    defaults=list()
+  )
+)
 
-#' Calculate predictor importance by random permutations.
-#'
-#' @param object A fitted `workflow` object.
-#' @param split A single CV fold from `rsample`.
-#' 
-#' @return A data frame of the predictor importance measured as the mean decrease
-#'  in accuracy after randomly permuting each predictor in turn.
-#'  
-permutation_importance <- function(object, split, .threshold=0.5) {
-  
-  trained_rec <- extract_recipe(object)
-  fit_obj <- extract_fit_engine(object)
-  
-  newdata <- bake(trained_rec, assessment(split))
-  if (class(fit_obj) == "bart") {
+set_encoding(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  options=list(
+    predictor_indicators="one_hot",
+    compute_intercept=FALSE,
+    remove_intercept=TRUE,
+    allow_sparse_x=FALSE
+  )
+)
+
+set_pred(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  type="class",
+  value=list(
+    pre=NULL,
+    post=NULL,
+    func=c(fun="mbart_predict_calc"),
+    args=list(
+      obj=quote(object),
+      new_data=quote(new_data),
+      type="class"
+    )
+  )
+)
+
+set_pred(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  type="prob",
+  value=list(
+    pre=NULL,
+    post=NULL,
+    func=c(fun="mbart_predict_calc"),
+    args=list(
+      obj=quote(object),
+      new_data=quote(new_data),
+      type="prob"
+    )
+  )
+)
+
+set_pred(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  type="raw",
+  value=list(
+    pre=NULL,
+    post=NULL,
+    func=c(fun="mbart_predict_calc"),
+    args=list(
+      obj=quote(object),
+      new_data=quote(new_data),
+      type="ev"
+    )
+  )
+)
+
+set_pred(
+  model="bart",
+  eng="mbart",
+  mode="classification",
+  type="numeric",
+  value=list(
+    pre=NULL,
+    post=NULL,
+    func=c(fun="mbart_predict_calc"),
+    args=list(
+      obj=quote(object),
+      new_data=quote(new_data),
+      type="ppd"
+    )
+  )
+)
+
+
+permutation_importance_ <- function(fit_obj, test_set, .threshold=0.5, .n=1, parallel=FALSE) {
+  if ("bart" %in% class(fit_obj)) {
     fcn <- function(object, newdata) {
       p <- colMeans(predict(object, newdata))
       ifelse(p > .threshold, "threatened", "not threatened")
     }
-  } else {
+  } else if (length(levels(test_set$obs)) == 2) {
     fcn <- function(object, newdata) {
       p <- predict(object, newdata, type="prob")
       ifelse(p > .threshold, "threatened", "not threatened")
     }
+  } else {
+    fcn <- function(object, newdata) {
+      p <- predict(object, newdata)
+      p$.pred_class
+    }
   }
-  
+
   vip::vi_permute(
     fit_obj,
-    train=newdata,
+    train=test_set,
     target="obs",
     metric="accuracy",
     pred_wrapper=fcn,
-    nsim=50
-  )
-}
-
-#' Fit and evaluate a model with additional threshold tuning.
-#' 
-#' Fits the model on the training set of a single CV fold, picks the classification
-#' threshold that maximises the TSS, and then evaluates the model performance with 
-#' that threshold using class-based performance metrics.
-#' 
-#' @param wf A finalised `workflow` object.
-#' @param split A single CV fold or train/test split as an `rsample::rset` object.
-#' @param metrics A single or set of class-based classification metrics, e.g. accuracy.
-#' 
-last_fit_threshold <- function(wf, split, metrics) {
-  .fit <- fit(wf, analysis(split))
-  .pred <- augment(.fit, assessment(split))
-  
-  .threshold <- choose_threshold(.pred$.pred_threatened, .pred$obs)
-  .pred$.pred_class <- ifelse(.pred$.pred_threatened > .threshold$best,
-                              "threatened", "not threatened")
-  .pred$.pred_class <- factor(.pred$.pred_class, levels=levels(.pred$obs))
-  
-  .metrics <- metrics(.pred, truth=obs, estimate=.pred_class, event_level="second")
-  
-  list(
-    .fit=.fit,
-    .predictions=.pred,
-    .metrics=.metrics,
-    .threshold=.threshold$best
+    nsim=.n,
+    parallel=parallel
   )
 }
 
@@ -215,114 +180,96 @@ choose_threshold <- function(preds, labels) {
   )
 }
 
-#' Extract the cross-validated performance of a model from a nested data frame.
-#' 
-#' @param results A data frame of modelling results after running `evaluate_model`.
-#' 
-extract_performance <- function(results) {
-  results |>
-    rowwise() |>
-    select(id, .metrics, .threshold) |>
-    unnest(.metrics)
+extract_samples <- function(obj, newdata, type="ev", ids=NULL) {
+  if ("_mbart" %in% class(obj)) {
+    samples <- mbart_samples(obj, newdata=newdata, type=type, ids=ids)
+  } else {
+    samples <- dbart_samples(obj, newdata=newdata, type=type, ids=ids)
+  }
+
+  samples
 }
 
-#' Extract the cross-validated test-set predictions from a nested data frame.
-#' 
-#' @param results A data frame of modelling results after running `evaluate_model`.
-#' 
-extract_predictions <- function(results) {
-  results |>
-    rowwise() |>
-    select(id, .preds) |>
-    unnest(.preds)
-}
+dbart_samples <- function(obj, newdata, type="ev", ids=NULL) {
+  fit_obj <- extract_fit_engine(obj)
+  pred <- predict(fit_obj, newdata=newdata, type=type)
 
-#' Extract the cross-validated permutation importance from a nested data frame.
-#' 
-#' @param results A data frame of modelling results after running `evaluate_model`.
-#' 
-extract_importance <- function(results) {
-  results |>
-    select(id, .importance) |>
-    unnest(.importance) |>
-    select(variable=Variable, mean_decrease_accuracy=Importance)
-}
-
-
-#' Sample posterior predictions for labelled and unlabelled data using a BART model.
-#'
-#' @param wf a fit `workflow` object
-#' @param labelled a data frame of labelled data for predictions
-#' @param unlabelled a data frame of unlabelled data for predictions
-predict_bart <- function(wf, labelled, unlabelled) {
-  # extracting fit object and recipe so we can sample posterior
-  trained_rec <- extract_recipe(wf)
-  fit_obj <- extract_fit_engine(wf)
-  
-  # process data for predictions
-  labelled_processed <- bake(trained_rec, new_data=labelled)
-  unlabelled_processed <- bake(trained_rec, new_data=unlabelled)
-  
-  # sample posterior probability of threat
-  pred_labelled <- predict(fit_obj, newdata=labelled_processed, type="ev")
-  pred_unlabelled <- predict(fit_obj, newdata=unlabelled_processed, type="ev")
-  
-  ev_samples <-
-    pred_labelled |>
+  samples <- pred |>
     t() |>
-    as_tibble() |>
-    mutate(set="labelled", plant_name_id=labelled$plant_name_id) |>
-    bind_rows(
-      pred_unlabelled |>
-        t() |>
-        as_tibble() |>
-        mutate(set="unlabelled", plant_name_id=unlabelled$plant_name_id)
-    )
-  
-  # sample posterior predictive (so we can get estimated proportion threatened)
-  ppd_labelled <- predict(fit_obj, newdata=labelled_processed, type="ppd")
-  ppd_unlabelled <- predict(fit_obj, newdata=unlabelled_processed, type="ppd")
-  
-  ppd_samples <-
-    ppd_labelled |>
-    t() |>
-    as_tibble() |>
-    mutate(set="labelled", plant_name_id=labelled$plant_name_id) |>
-    bind_rows(
-      ppd_unlabelled |> 
-        t() |>
-        as_tibble() |>
-        mutate(set="unlabelled", plant_name_id=unlabelled$plant_name_id)
-    )
-  
-  list(
-    ev=ev_samples,
-    ppd=ppd_samples
-  )
+    as_tibble()
+
+  if (! is.null(ids)) {
+    samples$.id <- ids
+  }
+
+  samples
 }
 
-#' Make predictions for labelled and unlabelled data.
-#'
-#' @param wf a fit `workflow` object
-#' @param labelled a data frame of labelled data for predictions
-#' @param unlabelled a data frame of unlabelled data for predictions
-predict_classes <- function(wf, labelled, unlabelled, threshold=NULL) {
-  labelled_pred <- augment(wf, new_data=labelled)
-  if (is.null(threshold)) {
-    threshold <- choose_threshold(labelled_pred$.pred_threatened, labelled_pred$obs)
-    threshold <- threshold$best
+mbart_samples <- function(obj, newdata, type="ev", ids=NULL) {
+  if (type == "ev") {
+    type <- "raw"
+  } else {
+    type <- "pred_int"
+  }
+  samples <- predict(obj, newdata=newdata, type=type)
+
+  if (! is.null(ids)) {
+    id_vec <- ids[samples$.id]
+    samples$.id <- id_vec
+  }
+
+  samples
+}
+
+mbart_train <- function(x, y, ntree=50, k=2, power=2, base=0.95, sparse=FALSE, printevery=100000L) {
+  y <- as.numeric(y)
+
+  BART::mbart(x, y, ntree=ntree, k=k, power=power, base=base, sparse=sparse, printevery=printevery)
+}
+
+mbart_predict_calc <- function(obj, new_data, type) {
+  types <- c("prob", "class", "ev", "ppd")
+  
+  mbart_obj <- extract_fit_engine(obj)
+  
+  preds <- predict(mbart_obj, as.data.frame(new_data))
+  mn <- preds$prob.test.mean
+  
+  idx <- ceiling(seq(1, length(mn)) / length(obj$lvl))
+  probs <- split(mn, idx)
+  
+  if (type == "prob") {
+    res <- do.call(rbind, probs)
+    res <- as_tibble(res)
+    colnames(res) <- paste0(".pred_", obj$lvl)
+  } else if (type == "class") {
+    lvl_idx <- sapply(probs, which.max)
+    lvl <- obj$lvl[lvl_idx]
+    lvl <- factor(lvl, levels=obj$lvl)
+    res <- tibble(.pred_class=lvl)
+  } else {
+    probs_tbl <- 
+    preds$prob.test |>
+    t() |>
+    as_tibble()
+
+    res <- split(probs_tbl, idx)
+
+    if (type == "ppd") {
+      res <- lapply(
+        res,
+        function(x) lapply(x, function(xi) obj$lvl[which.max(rmultinom(1, 1, xi))])
+      )
+
+      res <- lapply(res, as_tibble)
+    } else {
+      res <- lapply(res, function(x) mutate(x, .cls=obj$lvl))
+    }
+
+    res <- purrr::map2(res, seq(1, max(idx)), ~mutate(.x, .id=.y))
+    
+    bind_rows(res)
   }
   
-  unlabelled_pred <- augment(wf, new_data=unlabelled)
-  
-  labelled_pred |>
-    mutate(set="labelled") |>
-    bind_rows(
-      unlabelled_pred |>
-        mutate(set="unlabelled")
-    ) |>
-    mutate(.pred_class=ifelse(.pred_threatened > threshold,
-                              "threatened", "not threatened"),
-           .threshold=threshold) |>
-    mutate(.pred_class=factor(.pred_class, levels=levels(obs)))
+  res
 }

@@ -1,17 +1,18 @@
 # MODEL SPECIFICATION ----
-specify_model <- function() {
+specify_model <- function(...) {
   rand_forest(
     trees=1000,
     mtry=tune(),
     min_n=tune()
   ) |>
     set_mode("classification") |>
-    set_engine("randomForest")
+    set_engine("ranger", importance="permutation")
 }
 
 # PRE-PROCESSING SPECIFICATION ----
 specify_recipe <- function(data, ...) {
   outcome <- "obs"
+  
   predictors <- c(
     "L3_count",
     "humphreys_lifeform",
@@ -58,3 +59,7 @@ specify_recipe <- function(data, ...) {
 }
 
 # HYPERPARAMETERS ----
+hparam_grid <- grid_latin_hypercube(
+  mtry(range=c(3, 25)),
+  min_n()
+)
