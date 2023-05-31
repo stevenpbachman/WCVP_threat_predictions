@@ -22,21 +22,31 @@
 #'  source("03_analysis_scripts/train-model.R")
 #' 
 
+method <- "bart"
+output_dir <- "output/review1/latest_bart_rl2022_2_all/"
+model_dir <- "output/review1/latest_bart_rl2022_2_all/"
+method_dir <- "04_model_definitions"
+predictor_file <- "output/review1/latest_bart_rl2022_2_all/predictors-angiosperm-20230525-155316.csv"
+random_seed <- 1989
+target="threat_status" # or category
+
 # libraries ----
 shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
 shhlibrary(tidyverse)   # packages for data handling
 shhlibrary(tidymodels)  # packages for model training and evaluation
 shhlibrary(cli)         # nice formatting for CLI
+shhlibrary(git2r)
 
 source("R/utility-functions.R")
+
 # CLI ----
 cli_h1("Setting up an extinction prediction model training run")
 
 if (sys.nframe() == 0L) {
   default_args <- list(
-    output_dir="05_outputs",
+    output_dir="output/review1/latest_bart_rl2022_2_all/",
     method_dir="04_model_definitions",
-    target="threat_status",
+    target="threat_status", # or category
     random_seed=1989,
     force_commits=TRUE
   )
@@ -107,7 +117,7 @@ latest_hash <- system2("git", args=c("rev-list", "--max-count=1", "--abbrev-comm
                        stdout=TRUE)
 now <- format(Sys.time(), "%Y%m%d-%H%M%S")
 
-output_dir <- file.path(output_dir, method, latest_hash, now)
+output_dir <- file.path(output_dir, method, now) #latest_hash
 dir.create(output_dir, showWarnings=FALSE, recursive=TRUE)
 
 cli_alert_info("Setting up a {.strong {method}} model using {.file {predictor_file}}")
@@ -125,8 +135,25 @@ run_meta <- list(
 )
 
 write(jsonlite::toJSON(run_meta, auto_unbox=TRUE), file.path(output_dir, "run-metadata.json"))
+
 # load predictors ----
 predictors <- read_csv(predictor_file, show_col_types=FALSE, progress=FALSE)
+
+# recode categories
+rl_codes_map <- c("Critically Endangered" = "CR",
+                 "Data Deficient" = "DD",
+                 "Endangered" = "EN",
+                 "Extinct" = "EX",
+                 "Extinct in the Wild" = "EW",
+                 "Least Concern" = "LC",
+                 "Lower Risk/conservation dependent" = "LR/cd",
+                 "Lower Risk/least concern" = "LR/lc",
+                 "Lower Risk/near threatened" = "LR/nt",
+                 "Near Threatened" = "NT",
+                 "Vulnerable" = "VU"                       
+                 )
+
+predictors$category <- recode(predictors$category, !!! rl_codes_map)
 
 # prepare predictors ----
 predictors <- filter(predictors, ! category %in% c("EW", "EX"))

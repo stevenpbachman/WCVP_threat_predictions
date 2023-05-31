@@ -157,12 +157,12 @@ plot_map <- function(data, fill_var, .proj=c("moll", "igh"), .points=FALSE, .sha
   
   if (is.null(.shapes)) {
     filled_regions <- 
-      rWCVPdata::wgsprd3 |>
-      left_join(data, by=c("LEVEL3_COD"="area_code_l3"))
+      rWCVPdata::wgsrpd3 |>
+      dplyr::left_join(data, by=c("LEVEL3_COD"="area_code_l3"))
   } else {
     filled_regions <-
       .shapes |>
-      left_join(data)
+      dplyr::left_join(data)
   }
   
   

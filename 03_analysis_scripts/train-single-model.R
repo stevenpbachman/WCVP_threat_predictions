@@ -33,6 +33,14 @@ shhlibrary(doParallel)  # set up parallel processing
 shhlibrary(git2r)       # run git commands in R
 shhlibrary(cli)         # nice formatting for CLI
 
+method <- "bart"
+output_dir <- "output/review1/latest_bart_rl2022_2_all/"
+model_dir <- "output/review1/latest_bart_rl2022_2_all/"
+method_dir <- "04_model_definitions"
+predictor_file <- "output/review1/latest_bart_rl2022_2_all/predictors-angiosperm-20230525-155316.csv"
+random_seed <- 1989
+target="threat_status" # or category
+
 source("R/utility-functions.R")
 source("R/model-functions.R")
 # CLI ----
@@ -42,7 +50,7 @@ if (sys.nframe() == 0L) {
   default_args <- list(
     output_dir="05_outputs",
     method_dir="04_model_definitions",
-    mode="eval",
+    mode="tune",
     threshold=NULL,
     random_seed=1989,
     force_commits=TRUE
