@@ -22,13 +22,13 @@
 #'  source("03_analysis_scripts/train-model.R")
 #' 
 
-method <- "bart"
-output_dir <- "output/review1/latest_bart_rl2022_2_all/"
-model_dir <- "output/review1/latest_bart_rl2022_2_all/"
-method_dir <- "04_model_definitions"
-predictor_file <- "output/review1/latest_bart_rl2022_2_all/predictors-angiosperm-20230525-155316.csv"
-random_seed <- 1989
-target="threat_status" # or category
+#method <- "bart"
+#output_dir <- "output/review1/latest_bart_rl2022_2_all/"
+#model_dir <- "output/review1/latest_bart_rl2022_2_all/"
+#method_dir <- "04_model_definitions"
+#predictor_file <- "output/review1/latest_bart_rl2022_2_all/predictors-angiosperm-20230525-155316.csv"
+#random_seed <- 1989
+#target="threat_status" # or category
 
 # libraries ----
 shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
@@ -136,8 +136,12 @@ run_meta <- list(
 
 write(jsonlite::toJSON(run_meta, auto_unbox=TRUE), file.path(output_dir, "run-metadata.json"))
 
+cli_alert_info("predictor file loading next...")
 # load predictors ----
-predictors <- read_csv(predictor_file, show_col_types=FALSE, progress=FALSE)
+predictors <- readr::read_csv(predictor_file, show_col_types=FALSE, progress=FALSE)
+
+
+cli_alert_info("predictor file loaded")
 
 # recode categories
 rl_codes_map <- c("Critically Endangered" = "CR",
