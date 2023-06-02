@@ -143,22 +143,6 @@ predictors <- readr::read_csv(predictor_file, show_col_types=FALSE, progress=FAL
 
 cli_alert_info("predictor file loaded")
 
-# recode categories
-rl_codes_map <- c("Critically Endangered" = "CR",
-                 "Data Deficient" = "DD",
-                 "Endangered" = "EN",
-                 "Extinct" = "EX",
-                 "Extinct in the Wild" = "EW",
-                 "Least Concern" = "LC",
-                 "Lower Risk/conservation dependent" = "LR/cd",
-                 "Lower Risk/least concern" = "LR/lc",
-                 "Lower Risk/near threatened" = "LR/nt",
-                 "Near Threatened" = "NT",
-                 "Vulnerable" = "VU"                       
-                 )
-
-predictors$category <- recode(predictors$category, !!! rl_codes_map)
-
 # prepare predictors ----
 predictors <- filter(predictors, ! category %in% c("EW", "EX"))
 

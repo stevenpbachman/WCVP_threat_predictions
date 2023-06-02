@@ -50,19 +50,11 @@ apg_families <-
   select("higher_groups"="HigherGroups", "order"="APG IV Order",
          "family"="APG IV Family")
 
-#redlist <- read_csv("01_raw_data/redlistJul2022_wcvpNewPhyt.csv") |>
 redlist <- read_csv("01_raw_data/redlist_2022_2_all.csv") |>
   add_count(accepted_plant_name_id) |>
-  #filter(n == 1 | scientific_name == match_name & match_status == "Accepted") |>
   filter(n == 1 | scientificName == match_name & accepted_taxon_status == "Accepted") |> # get rid of dups
   select(-n)  |>
   rename(category = redlistCategory)
-
-# remove species duplicated on Red List - accepted and synonym
-# redlist <- redlist |>
-#   dplyr::filter(internalTaxonId != 38347) |>
-#   dplyr::filter(scientificName != "Aster chimanimaniensis")
-# dplyr::filter(scientificName != "Henckelia smitinandii")
 
 wcvp_YoD <- read_csv("01_raw_data/wcvp_YoD.csv") |>
   distinct(plant_name_id, year)
@@ -130,13 +122,28 @@ predictors <-
     by=c("plant_name_id", "taxon_name"),relationship="one-to-one")
 
 # link RL assessments ----
+
 predictors <- 
   predictors |>
   left_join(
     redlist |> select(category, accepted_plant_name_id), 
     by=c("plant_name_id"="accepted_plant_name_id"), relationship="one-to-one")
 
-#Ilex pseudoumbelliformis - 861317-az
+# recode categories
+rl_codes_map <- c("Critically Endangered" = "CR",
+                  "Data Deficient" = "DD",
+                  "Endangered" = "EN",
+                  "Extinct" = "EX",
+                  "Extinct in the Wild" = "EW",
+                  "Least Concern" = "LC",
+                  "Lower Risk/conservation dependent" = "LR/cd",
+                  "Lower Risk/least concern" = "LR/lc",
+                  "Lower Risk/near threatened" = "LR/nt",
+                  "Near Threatened" = "NT",
+                  "Vulnerable" = "VU"                       
+)
+
+predictors$category <- recode(predictors$category, !!! rl_codes_map)
 
 # link year of description ----
 predictors <- 
