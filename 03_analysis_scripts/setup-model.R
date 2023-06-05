@@ -117,7 +117,7 @@ latest_hash <- system2("git", args=c("rev-list", "--max-count=1", "--abbrev-comm
                        stdout=TRUE)
 now <- format(Sys.time(), "%Y%m%d-%H%M%S")
 
-output_dir <- file.path(output_dir, method, now) #latest_hash
+output_dir <- file.path(output_dir, method, latest_hash, now)
 dir.create(output_dir, showWarnings=FALSE, recursive=TRUE)
 
 cli_alert_info("Setting up a {.strong {method}} model using {.file {predictor_file}}")
