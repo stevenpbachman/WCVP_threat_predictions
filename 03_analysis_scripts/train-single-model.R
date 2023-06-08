@@ -259,8 +259,8 @@ if (mode == "prod" & method == "bart") {
       mutate(set="unlabelled") 
     )
   
-  write_csv(ppd_samples, file.path(output_dir, paste0(name, "-ppd-samples.csv")))
-  write_csv(ev_samples, file.path(output_dir, paste0(name, "-ev-samples.csv")))
+  write_csv(ppd_samples, file.path(output_dir, "final-ppd-samples.csv"))
+  write_csv(ev_samples, file.path(output_dir, "final-ev-samples.csv"))
 }
 
 ### feature importance ----
