@@ -130,9 +130,9 @@ set_pred(
 
 
 permutation_importance_ <- function(fit_obj, test_set, .threshold=0.5, .n=1, parallel=FALSE) {
-  if ("bart" %in% class(fit_obj)) {
+  if ("_bart" %in% class(fit_obj)) {
     fcn <- function(object, newdata) {
-      p <- colMeans(predict(object, newdata))
+      p <- colMeans(predict(object$fit, newdata))
       ifelse(p > .threshold, "threatened", "not threatened")
     }
   } else if (length(levels(test_set$obs)) == 2) {
